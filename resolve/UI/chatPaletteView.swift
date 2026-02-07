@@ -10,6 +10,7 @@ struct ChatPaletteView: View {
     enum ProblemType: String, CaseIterable, Identifiable {
         case multipleChoiceSingle = "Multiple Choice – Single Select"
         case multipleChoiceMulti = "Multiple Choice – Multi Select"
+        case generalQuestion = "General Question"
 
         var id: String { rawValue }
     }
@@ -29,6 +30,7 @@ struct ChatPaletteView: View {
     private let useLiveAPI = false
     private let singleSelectAdvocateWidth: CGFloat = 150
     private let multiSelectAdvocateWidth: CGFloat = 170
+    private let generalQuestionAdvocateWidth: CGFloat = 230
     private let advocateTopPadding: CGFloat = 44
 
     private var canSend: Bool {
@@ -80,12 +82,13 @@ struct ChatPaletteView: View {
     }
 
     private var topArea: some View {
-        HStack(alignment: .top, spacing: 12) {
-            leftColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-            rightColumn
-                .frame(width: advocateColumnWidth)
+        Group {
+            switch submittedProblemType {
+            case .generalQuestion:
+                generalQuestionArea
+            case .multipleChoiceSingle, .multipleChoiceMulti:
+                multipleChoiceArea
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -97,6 +100,26 @@ struct ChatPaletteView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
+    }
+
+    private var multipleChoiceArea: some View {
+        HStack(alignment: .top, spacing: 12) {
+            leftColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            rightColumn
+                .frame(width: advocateColumnWidth)
+        }
+    }
+
+    private var generalQuestionArea: some View {
+        HStack(alignment: .top, spacing: 12) {
+            generalQuestionLeftColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            generalQuestionRightColumn
+                .frame(width: advocateColumnWidth)
+        }
     }
 
     private var leftColumn: some View {
@@ -179,6 +202,8 @@ struct ChatPaletteView: View {
             return singleSelectAdvocateWidth
         case .multipleChoiceMulti:
             return multiSelectAdvocateWidth
+        case .generalQuestion:
+            return generalQuestionAdvocateWidth
         }
     }
 
@@ -188,6 +213,8 @@ struct ChatPaletteView: View {
             return "A"
         case .multipleChoiceMulti:
             return "A, C, D"
+        case .generalQuestion:
+            return ""
         }
     }
 
@@ -197,6 +224,8 @@ struct ChatPaletteView: View {
             return "B"
         case .multipleChoiceMulti:
             return "B, D"
+        case .generalQuestion:
+            return ""
         }
     }
 
@@ -206,7 +235,106 @@ struct ChatPaletteView: View {
             return "Single Select"
         case .multipleChoiceMulti:
             return "Multi Select"
+        case .generalQuestion:
+            return "General Question"
         }
+    }
+
+    private var problemTypeIcon: String {
+        switch problemType {
+        case .multipleChoiceSingle:
+            return "checkmark.circle"
+        case .multipleChoiceMulti:
+            return "checklist"
+        case .generalQuestion:
+            return "questionmark.circle"
+        }
+    }
+
+    private var generalQuestionLeftColumn: some View {
+        VStack(spacing: 12) {
+            if !lastSentText.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.secondary)
+
+                    Text(lastSentText)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+            }
+
+            Divider()
+                .overlay(Color.white.opacity(0.10))
+
+            generalQuestionHeader
+
+            ScrollView {
+                Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.")
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private var generalQuestionHeader: some View {
+        HStack(spacing: 8) {
+            Text("Answer")
+                .font(.system(size: 13, weight: .semibold))
+
+            Spacer()
+        }
+    }
+
+    private var generalQuestionRightColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Spacer()
+                Text(problemTypeShortLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 8) {
+                    AdvocateThesisCardView(
+                        title: "ChatGPT",
+                        thesis: "Concise thesis summary placeholder text for the model answer."
+                    )
+                    AdvocateThesisCardView(
+                        title: "Gemini",
+                        thesis: "Concise thesis summary placeholder text for the model answer."
+                    )
+                    AdvocateThesisCardView(
+                        title: "Claude",
+                        thesis: "Concise thesis summary placeholder text for the model answer."
+                    )
+                    AdvocateThesisCardView(
+                        title: "Grok",
+                        thesis: "Concise thesis summary placeholder text for the model answer."
+                    )
+                    AdvocateThesisCardView(
+                        title: "DeepSeek",
+                        thesis: "Concise thesis summary placeholder text for the model answer."
+                    )
+                }
+                .padding(.trailing, 2)
+            }
+            .frame(maxHeight: .infinity)
+        }
+        .padding(.top, advocateTopPadding)
     }
 
     private var headerRow: some View {
@@ -272,8 +400,14 @@ struct ChatPaletteView: View {
                 } label: {
                     Label("Multiple Choice – Multi Select", systemImage: "checklist")
                 }
+
+                Button {
+                    problemType = .generalQuestion
+                } label: {
+                    Label("General Question", systemImage: "questionmark.circle")
+                }
             } label: {
-                Image(systemName: problemType == .multipleChoiceSingle ? "checkmark.circle" : "checklist")
+                Image(systemName: problemTypeIcon)
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 28, height: 28)
                     .background(
@@ -364,6 +498,37 @@ private extension ChatPaletteView {
                 Text(value)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+    }
+
+    struct AdvocateThesisCardView: View {
+        let title: String
+        let thesis: String
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(thesis)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .lineLimit(5)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
