@@ -11,6 +11,7 @@ struct ChatPaletteView: View {
         case multipleChoiceSingle = "Multiple Choice – Single Select"
         case multipleChoiceMulti = "Multiple Choice – Multi Select"
         case generalQuestion = "General Question"
+        case comparison = "Comparison"
 
         var id: String { rawValue }
     }
@@ -101,7 +102,7 @@ struct ChatPaletteView: View {
     private var topArea: some View {
         Group {
             switch submittedProblemType {
-            case .generalQuestion:
+            case .generalQuestion, .comparison:
                 generalQuestionArea
             case .multipleChoiceSingle, .multipleChoiceMulti:
                 multipleChoiceArea
@@ -239,7 +240,7 @@ struct ChatPaletteView: View {
             return singleSelectAdvocateWidth
         case .multipleChoiceMulti:
             return multiSelectAdvocateWidth
-        case .generalQuestion:
+        case .generalQuestion, .comparison:
             return generalQuestionAdvocateWidth
         }
     }
@@ -299,7 +300,7 @@ struct ChatPaletteView: View {
             return advocate.singleValue
         case .multipleChoiceMulti:
             return advocate.multiValue
-        case .generalQuestion:
+        case .generalQuestion, .comparison:
             return ""
         }
     }
@@ -320,6 +321,8 @@ struct ChatPaletteView: View {
             return "Multi Select"
         case .generalQuestion:
             return "General Question"
+        case .comparison:
+            return "Comparison"
         }
     }
 
@@ -331,6 +334,8 @@ struct ChatPaletteView: View {
             return "checklist"
         case .generalQuestion:
             return "questionmark.circle"
+        case .comparison:
+            return "arrow.left.arrow.right"
         }
     }
 
@@ -423,7 +428,7 @@ struct ChatPaletteView: View {
 
     private var generalQuestionHeader: some View {
         HStack(spacing: 8) {
-            Text("Answer")
+            Text(submittedProblemType == .comparison ? "Recommendation" : "Answer")
                 .font(.system(size: 13, weight: .semibold))
 
             Spacer()
@@ -530,6 +535,12 @@ struct ChatPaletteView: View {
                 } label: {
                     Label("General Question", systemImage: "questionmark.circle")
                 }
+
+                Button {
+                    problemType = .comparison
+                } label: {
+                    Label("Comparison", systemImage: "arrow.left.arrow.right")
+                }
             } label: {
                 Image(systemName: problemTypeIcon)
                     .font(.system(size: 14, weight: .semibold))
@@ -606,6 +617,7 @@ struct ChatPaletteView: View {
             }
         }
     }
+
 }
 
 private extension ChatPaletteView {
