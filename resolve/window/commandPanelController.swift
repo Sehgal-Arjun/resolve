@@ -26,6 +26,27 @@ final class CommandPanelController {
         isShown.toggle()
     }
 
+    func setHeight(_ height: CGFloat, animated: Bool) {
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let delta = height - currentFrame.height
+        guard abs(delta) > 0.5 else { return }
+
+        var newFrame = currentFrame
+        newFrame.origin.y -= delta
+        newFrame.size.height = height
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
     private func createPanelIfNeeded() {
         guard panel == nil else { return }
 
