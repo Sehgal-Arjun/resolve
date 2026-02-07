@@ -72,6 +72,26 @@ final class CommandPanelController {
         }
     }
 
+    func setWidth(_ width: CGFloat, animated: Bool) {
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let deltaWidth = width - currentFrame.width
+        guard abs(deltaWidth) > 0.5 else { return }
+
+        var newFrame = currentFrame
+        newFrame.size.width = width
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
     private func createPanelIfNeeded() {
         guard panel == nil else { return }
 

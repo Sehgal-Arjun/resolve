@@ -21,12 +21,14 @@ struct ChatPaletteView: View {
     @State private var lastSentText = ""
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
+    @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
 
     private let baseHeight: CGFloat = 140
     private let expandedHeight: CGFloat = 460
     private let baseWidth: CGFloat = 620
     private let expandedWidth: CGFloat = 760
+    private let drawerWidth: CGFloat = 260
     private let useLiveAPI = false
     private let singleSelectAdvocateWidth: CGFloat = 150
     private let multiSelectAdvocateWidth: CGFloat = 170
@@ -35,6 +37,15 @@ struct ChatPaletteView: View {
 
     private var canSend: Bool {
         phase != .loading && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var isDrawerOpen: Bool {
+        selectedAdvocateId != nil
+    }
+
+    private var currentPanelWidth: CGFloat {
+        let base = phase == .composing ? baseWidth : expandedWidth
+        return isDrawerOpen && phase != .composing ? base + drawerWidth : base
     }
 
     private var inputContentOpacity: Double {
@@ -66,7 +77,7 @@ struct ChatPaletteView: View {
             .padding(18)
         }
         .frame(
-            width: phase == .composing ? baseWidth : expandedWidth,
+            width: currentPanelWidth,
             height: phase == .composing ? baseHeight : expandedHeight
         )
         .onAppear {
@@ -75,9 +86,15 @@ struct ChatPaletteView: View {
             }
         }
         .onChange(of: phase) { newPhase in
+            if newPhase == .composing {
+                selectedAdvocateId = nil
+            }
             let height = newPhase == .composing ? baseHeight : expandedHeight
-            let width = newPhase == .composing ? baseWidth : expandedWidth
+            let width = newPhase == .composing ? baseWidth : currentPanelWidth
             CommandPanelController.shared.setSize(width: width, height: height, animated: true)
+        }
+        .onChange(of: selectedAdvocateId) { _ in
+            CommandPanelController.shared.setWidth(currentPanelWidth, animated: true)
         }
     }
 
@@ -109,6 +126,12 @@ struct ChatPaletteView: View {
 
             rightColumn
                 .frame(width: advocateColumnWidth)
+
+            if let selected = selectedAdvocate {
+                advocateDrawer(for: selected)
+                    .frame(width: drawerWidth)
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -119,6 +142,12 @@ struct ChatPaletteView: View {
 
             generalQuestionRightColumn
                 .frame(width: advocateColumnWidth)
+
+            if let selected = selectedAdvocate {
+                advocateDrawer(for: selected)
+                    .frame(width: drawerWidth)
+                    .transition(.opacity)
+            }
         }
     }
 
@@ -187,11 +216,19 @@ struct ChatPaletteView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
-            AdvocateCardView(title: "ChatGPT", value: advocateValue)
-            AdvocateCardView(title: "Gemini", value: advocateValue)
-            AdvocateCardView(title: "Claude", value: advocateValue)
-            AdvocateCardView(title: "Grok", value: advocateValue)
-            AdvocateCardView(title: "DeepSeek", value: advocateValueAlt)
+
+            ForEach(advocates) { advocate in
+                Button {
+                    toggleAdvocateSelection(advocate)
+                } label: {
+                    AdvocateCardView(
+                        title: advocate.name,
+                        value: advocateValue(for: advocate),
+                        isSelected: selectedAdvocateId == advocate.id
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
         .padding(.top, advocateTopPadding)
     }
@@ -207,25 +244,71 @@ struct ChatPaletteView: View {
         }
     }
 
-    private var advocateValue: String {
+    private var advocates: [AdvocateItem] {
+        [
+            AdvocateItem(
+                id: "chatgpt",
+                name: "ChatGPT",
+                singleValue: "A",
+                multiValue: "A, C, D",
+                thesis: "Concise thesis summary placeholder text for the model answer.",
+                reasoning: "Detailed reasoning placeholder for ChatGPT. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+            ),
+            AdvocateItem(
+                id: "gemini",
+                name: "Gemini",
+                singleValue: "A",
+                multiValue: "A, C, D",
+                thesis: "Concise thesis summary placeholder text for the model answer.",
+                reasoning: "Detailed reasoning placeholder for Gemini. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+            ),
+            AdvocateItem(
+                id: "claude",
+                name: "Claude",
+                singleValue: "A",
+                multiValue: "A, C, D",
+                thesis: "Concise thesis summary placeholder text for the model answer.",
+                reasoning: "Detailed reasoning placeholder for Claude. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+            ),
+            AdvocateItem(
+                id: "grok",
+                name: "Grok",
+                singleValue: "A",
+                multiValue: "A, C, D",
+                thesis: "Concise thesis summary placeholder text for the model answer.",
+                reasoning: "Detailed reasoning placeholder for Grok. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+            ),
+            AdvocateItem(
+                id: "deepseek",
+                name: "DeepSeek",
+                singleValue: "B",
+                multiValue: "B, D",
+                thesis: "Concise thesis summary placeholder text for the model answer.",
+                reasoning: "Detailed reasoning placeholder for DeepSeek. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+            )
+        ]
+    }
+
+    private var selectedAdvocate: AdvocateItem? {
+        advocates.first { $0.id == selectedAdvocateId }
+    }
+
+    private func advocateValue(for advocate: AdvocateItem) -> String {
         switch submittedProblemType {
         case .multipleChoiceSingle:
-            return "A"
+            return advocate.singleValue
         case .multipleChoiceMulti:
-            return "A, C, D"
+            return advocate.multiValue
         case .generalQuestion:
             return ""
         }
     }
 
-    private var advocateValueAlt: String {
-        switch submittedProblemType {
-        case .multipleChoiceSingle:
-            return "B"
-        case .multipleChoiceMulti:
-            return "B, D"
-        case .generalQuestion:
-            return ""
+    private func toggleAdvocateSelection(_ advocate: AdvocateItem) {
+        if selectedAdvocateId == advocate.id {
+            selectedAdvocateId = nil
+        } else {
+            selectedAdvocateId = advocate.id
         }
     }
 
@@ -249,6 +332,55 @@ struct ChatPaletteView: View {
         case .generalQuestion:
             return "questionmark.circle"
         }
+    }
+
+    private func advocateDrawer(for advocate: AdvocateItem) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(advocate.name)
+                    .font(.system(size: 14, weight: .semibold))
+
+                Spacer()
+
+                Button {
+                    selectedAdvocateId = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+            }
+
+            Text("Detailed reasoning")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                Text(advocate.reasoning)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
     }
 
     private var generalQuestionLeftColumn: some View {
@@ -309,26 +441,18 @@ struct ChatPaletteView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 8) {
-                    AdvocateThesisCardView(
-                        title: "ChatGPT",
-                        thesis: "Concise thesis summary placeholder text for the model answer."
-                    )
-                    AdvocateThesisCardView(
-                        title: "Gemini",
-                        thesis: "Concise thesis summary placeholder text for the model answer."
-                    )
-                    AdvocateThesisCardView(
-                        title: "Claude",
-                        thesis: "Concise thesis summary placeholder text for the model answer."
-                    )
-                    AdvocateThesisCardView(
-                        title: "Grok",
-                        thesis: "Concise thesis summary placeholder text for the model answer."
-                    )
-                    AdvocateThesisCardView(
-                        title: "DeepSeek",
-                        thesis: "Concise thesis summary placeholder text for the model answer."
-                    )
+                    ForEach(advocates) { advocate in
+                        Button {
+                            toggleAdvocateSelection(advocate)
+                        } label: {
+                            AdvocateThesisCardView(
+                                title: advocate.name,
+                                thesis: advocate.thesis,
+                                isSelected: selectedAdvocateId == advocate.id
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding(.trailing, 2)
             }
@@ -485,9 +609,19 @@ struct ChatPaletteView: View {
 }
 
 private extension ChatPaletteView {
+    struct AdvocateItem: Identifiable {
+        let id: String
+        let name: String
+        let singleValue: String
+        let multiValue: String
+        let thesis: String
+        let reasoning: String
+    }
+
     struct AdvocateCardView: View {
         let title: String
         let value: String
+        let isSelected: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -508,7 +642,7 @@ private extension ChatPaletteView {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
         }
     }
@@ -516,6 +650,7 @@ private extension ChatPaletteView {
     struct AdvocateThesisCardView: View {
         let title: String
         let thesis: String
+        let isSelected: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -539,7 +674,7 @@ private extension ChatPaletteView {
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
         }
     }
@@ -634,6 +769,6 @@ private extension ChatPaletteView {
         ChatPaletteView()
             .frame(width: 620, height: 420)
     }
-    .frame(width: 800, height: 600)
+    .frame(width: 1000, height: 600)
 }
 
