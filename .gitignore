@@ -1,0 +1,56 @@
+# ===== Xcode =====
+.DS_Store
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace
+!*.xcworkspace/contents.xcworkspacedata
+!*.xcworkspace/xcshareddata
+*.xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+resolve.xcodeproj/xcuserdata/arjun.xcuserdatad/xcschemes/xcschememanagement.plist
+
+# ===== Swift Package Manager =====
+.build/
+Packages/
+Package.resolved
+
+# ===== User-specific settings =====
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+!default.pbxuser
+!default.mode1v3
+!default.mode2v3
+!default.perspectivev3
+
+# ===== Logs =====
+*.log
+
+# ===== Temporary files =====
+*.swp
+*.tmp
+
+# ===== Fastlane (if added later) =====
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# ===== Code signing =====
+*.cer
+*.p12
+*.mobileprovision
+
+# ===== Playgrounds =====
+timeline.xctimeline
+playground.xcworkspace
+
+# ===== Coverage =====
+*.gcno
+*.gcda
+
+# ===== Crash reports =====
+*.crash
