@@ -7,10 +7,19 @@ struct ChatPaletteView: View {
         case responded
     }
 
+    enum ProblemType: String, CaseIterable, Identifiable {
+        case multipleChoiceSingle = "Multiple Choice – Single Select"
+        case multipleChoiceMulti = "Multiple Choice – Multi Select"
+
+        var id: String { rawValue }
+    }
+
     @State private var text = ""
     @State private var phase: Phase = .composing
     @State private var responseText = ""
     @State private var lastSentText = ""
+    @State private var problemType: ProblemType = .multipleChoiceSingle
+    @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
     @FocusState private var focused: Bool
 
     private let baseHeight: CGFloat = 140
@@ -18,7 +27,8 @@ struct ChatPaletteView: View {
     private let baseWidth: CGFloat = 620
     private let expandedWidth: CGFloat = 760
     private let useLiveAPI = false
-    private let advocateColumnWidth: CGFloat = 150
+    private let singleSelectAdvocateWidth: CGFloat = 150
+    private let multiSelectAdvocateWidth: CGFloat = 170
     private let advocateTopPadding: CGFloat = 44
 
     private var canSend: Bool {
@@ -148,13 +158,55 @@ struct ChatPaletteView: View {
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
-            AdvocateCardView(title: "ChatGPT", value: "A")
-            AdvocateCardView(title: "Gemini", value: "A")
-            AdvocateCardView(title: "Claude", value: "A")
-            AdvocateCardView(title: "Grok", value: "A")
-            AdvocateCardView(title: "DeepSeek", value: "B")
+            HStack {
+                Spacer()
+                Text(problemTypeShortLabel)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            AdvocateCardView(title: "ChatGPT", value: advocateValue)
+            AdvocateCardView(title: "Gemini", value: advocateValue)
+            AdvocateCardView(title: "Claude", value: advocateValue)
+            AdvocateCardView(title: "Grok", value: advocateValue)
+            AdvocateCardView(title: "DeepSeek", value: advocateValueAlt)
         }
         .padding(.top, advocateTopPadding)
+    }
+
+    private var advocateColumnWidth: CGFloat {
+        switch submittedProblemType {
+        case .multipleChoiceSingle:
+            return singleSelectAdvocateWidth
+        case .multipleChoiceMulti:
+            return multiSelectAdvocateWidth
+        }
+    }
+
+    private var advocateValue: String {
+        switch submittedProblemType {
+        case .multipleChoiceSingle:
+            return "A"
+        case .multipleChoiceMulti:
+            return "A, C, D"
+        }
+    }
+
+    private var advocateValueAlt: String {
+        switch submittedProblemType {
+        case .multipleChoiceSingle:
+            return "B"
+        case .multipleChoiceMulti:
+            return "B, D"
+        }
+    }
+
+    private var problemTypeShortLabel: String {
+        switch submittedProblemType {
+        case .multipleChoiceSingle:
+            return "Single Select"
+        case .multipleChoiceMulti:
+            return "Multi Select"
+        }
     }
 
     private var headerRow: some View {
@@ -170,10 +222,6 @@ struct ChatPaletteView: View {
             }
 
             Spacer()
-
-            Text("5/6 models")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -200,6 +248,7 @@ struct ChatPaletteView: View {
                     .focused($focused)
                     .disabled(phase == .loading)
             }
+            .frame(maxWidth: .infinity)
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
@@ -210,6 +259,35 @@ struct ChatPaletteView: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
+
+            Menu {
+                Button {
+                    problemType = .multipleChoiceSingle
+                } label: {
+                    Label("Multiple Choice – Single Select", systemImage: "checkmark.circle")
+                }
+
+                Button {
+                    problemType = .multipleChoiceMulti
+                } label: {
+                    Label("Multiple Choice – Multi Select", systemImage: "checklist")
+                }
+            } label: {
+                Image(systemName: problemType == .multipleChoiceSingle ? "checkmark.circle" : "checklist")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 28, height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 32, height: 32)
+            .fixedSize()
 
             Button(action: send) {
                 Image(systemName: "arrow.up")
@@ -234,6 +312,7 @@ struct ChatPaletteView: View {
         guard !trimmed.isEmpty, phase != .loading else { return }
 
         lastSentText = trimmed
+        submittedProblemType = problemType
 
         withAnimation(.easeInOut(duration: 0.2)) {
             text = ""
