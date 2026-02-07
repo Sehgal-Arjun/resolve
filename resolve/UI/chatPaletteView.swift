@@ -14,8 +14,12 @@ struct ChatPaletteView: View {
     @FocusState private var focused: Bool
 
     private let baseHeight: CGFloat = 140
-    private let expandedHeight: CGFloat = 420
+    private let expandedHeight: CGFloat = 460
+    private let baseWidth: CGFloat = 620
+    private let expandedWidth: CGFloat = 760
     private let useLiveAPI = false
+    private let advocateColumnWidth: CGFloat = 150
+    private let advocateTopPadding: CGFloat = 44
 
     private var canSend: Bool {
         phase != .loading && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -49,7 +53,10 @@ struct ChatPaletteView: View {
             }
             .padding(18)
         }
-        .frame(width: 620, height: phase == .composing ? baseHeight : expandedHeight)
+        .frame(
+            width: phase == .composing ? baseWidth : expandedWidth,
+            height: phase == .composing ? baseHeight : expandedHeight
+        )
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 focused = true
@@ -57,11 +64,32 @@ struct ChatPaletteView: View {
         }
         .onChange(of: phase) { newPhase in
             let height = newPhase == .composing ? baseHeight : expandedHeight
-            CommandPanelController.shared.setHeight(height, animated: true)
+            let width = newPhase == .composing ? baseWidth : expandedWidth
+            CommandPanelController.shared.setSize(width: width, height: height, animated: true)
         }
     }
 
     private var topArea: some View {
+        HStack(alignment: .top, spacing: 12) {
+            leftColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            rightColumn
+                .frame(width: advocateColumnWidth)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+    }
+
+    private var leftColumn: some View {
         VStack(spacing: 12) {
             if !lastSentText.isEmpty {
                 HStack(alignment: .top, spacing: 8) {
@@ -116,16 +144,17 @@ struct ChatPaletteView: View {
                 }
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.05))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
-        )
+    }
+
+    private var rightColumn: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            AdvocateCardView(title: "ChatGPT", value: "A")
+            AdvocateCardView(title: "Gemini", value: "A")
+            AdvocateCardView(title: "Claude", value: "A")
+            AdvocateCardView(title: "Grok", value: "A")
+            AdvocateCardView(title: "DeepSeek", value: "B")
+        }
+        .padding(.top, advocateTopPadding)
     }
 
     private var headerRow: some View {
@@ -243,6 +272,34 @@ struct ChatPaletteView: View {
 }
 
 private extension ChatPaletteView {
+    struct AdvocateCardView: View {
+        let title: String
+        let value: String
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Text(value)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+    }
+
     struct AnthropicMessageRequest: Encodable {
         struct Message: Encodable {
             let role: String
@@ -327,5 +384,12 @@ private extension ChatPaletteView {
 }
 
 #Preview {
-    ChatPaletteView()
+    ZStack {
+        Color.gray.opacity(0.2) // background to see bounds
+
+        ChatPaletteView()
+            .frame(width: 620, height: 420)
+    }
+    .frame(width: 800, height: 600)
 }
+
