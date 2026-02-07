@@ -1,17 +1,12 @@
-//
-//  resolveApp.swift
-//  resolve
-//
-//  Created by Arjun Sehgal on 2026-02-07.
-//
-
 import SwiftUI
 
 @main
 struct resolveApp: App {
+    @StateObject private var appController = AppController()
+
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        Settings {
+            EmptyView()
         }
     }
 }
