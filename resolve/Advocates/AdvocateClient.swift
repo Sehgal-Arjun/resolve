@@ -14,13 +14,58 @@ enum AdvocateClient {
         question: String,
         options: [String]?
     ) async -> [AdvocateResult] {
-        await withTaskGroup(of: AdvocateResult.self) { group in
-            let userMessage = buildAdvocateUserMessage(
+        // For MCQ types, run labeler first to extract canonical options
+        if problemType == .multipleChoiceSingle || problemType == .multipleChoiceMulti {
+            let labeled = await LabelerClient.labelMCQ(rawQuestion: question)
+            
+            if !labeled.ok {
+                let reason = labeled.reason ?? "Could not reliably detect multiple-choice options."
+                let errorMessage = "\(reason) Please paste options as a list or switch to General Question."
+                
+                return placeholderResults.map { result in
+                    AdvocateResult(
+                        provider: result.provider,
+                        explanation: errorMessage,
+                        summary: "Options not detected."
+                    )
+                }
+            }
+            
+            guard let questionStem = labeled.question_stem,
+                  let labeledOptions = labeled.options,
+                  labeledOptions.count >= 2,
+                  labeledOptions.count <= 26 else {
+                return placeholderResults.map { result in
+                    AdvocateResult(
+                        provider: result.provider,
+                        explanation: "Labeler returned invalid structure. Please paste options clearly or switch to General Question.",
+                        summary: "Invalid options."
+                    )
+                }
+            }
+            
+            // Build advocate message using labeled output
+            let userMessage = buildAdvocateUserMessageFromLabeled(
                 problemType: problemType,
-                question: question,
-                options: options
+                questionStem: questionStem,
+                options: labeledOptions
             )
-
+            
+            return await fetchAdvocatesWithMessage(userMessage)
+        }
+        
+        // For non-MCQ types, skip labeler and use existing flow
+        let userMessage = buildAdvocateUserMessage(
+            problemType: problemType,
+            question: question,
+            options: options
+        )
+        
+        return await fetchAdvocatesWithMessage(userMessage)
+    }
+    
+    private static func fetchAdvocatesWithMessage(_ userMessage: String) async -> [AdvocateResult] {
+        await withTaskGroup(of: AdvocateResult.self) { group in
             group.addTask { await OpenAIClient.fetch(userMessage: userMessage) }
             group.addTask { await AnthropicClient.fetch(userMessage: userMessage) }
             group.addTask { await GeminiClient.fetch(userMessage: userMessage) }
@@ -83,39 +128,43 @@ enum AdvocateClient {
         question: String,
         options: [String]?
     ) -> String {
+        // Only called for generalQuestion and comparison - MCQ types use buildAdvocateUserMessageFromLabeled
+        return [
+            "PROBLEM_TYPE: NARRATIVE",
+            "SUMMARY_FORMAT: Output exactly one sentence (max 22 words) that directly answers the question.",
+            "QUESTION: \(question)"
+        ].joined(separator: "\n")
+    }
+    
+    private static func buildAdvocateUserMessageFromLabeled(
+        problemType: ProblemType,
+        questionStem: String,
+        options: [LabeledOption]
+    ) -> String {
         let normalizedType: String
         let summaryFormat: String
-        let optionsLine: String?
-
+        
         switch problemType {
         case .multipleChoiceSingle:
             normalizedType = "SINGLE_SELECT"
-            summaryFormat = "Output ONLY the single best option letter (A/B/C/D). No other text."
-            let resolvedOptions = resolveOptions(options, question: question)
-            let formattedOptions = formatOptions(resolvedOptions)
-            optionsLine = "OPTIONS: \(formattedOptions)"
+            summaryFormat = "Output ONLY the single best option letter (\(options.map { $0.label }.joined(separator: "/"))). No other text."
         case .multipleChoiceMulti:
             normalizedType = "MULTI_SELECT"
-            summaryFormat = "Output ONLY a comma+space separated list of option letters in sorted order (e.g. ‘A, C, D’). No other text."
-            let resolvedOptions = resolveOptions(options, question: question)
-            let formattedOptions = formatOptions(resolvedOptions)
-            optionsLine = "OPTIONS: \(formattedOptions)"
+            summaryFormat = "Output ONLY a comma+space separated list of option letters in sorted order (e.g. '\(options.prefix(3).map { $0.label }.joined(separator: ", "))'). No other text."
         case .generalQuestion, .comparison:
             normalizedType = "NARRATIVE"
             summaryFormat = "Output exactly one sentence (max 22 words) that directly answers the question."
-            optionsLine = nil
         }
-
+        
+        let formattedOptions = options.map { "\($0.label)) \($0.text)" }.joined(separator: " ")
+        
         var lines: [String] = [
             "PROBLEM_TYPE: \(normalizedType)",
             "SUMMARY_FORMAT: \(summaryFormat)",
-            "QUESTION: \(question)"
+            "QUESTION: \(questionStem)",
+            "OPTIONS: \(formattedOptions)"
         ]
-
-        if let optionsLine {
-            lines.append(optionsLine)
-        }
-
+        
         return lines.joined(separator: "\n")
     }
 
@@ -132,62 +181,5 @@ enum AdvocateClient {
             return text
         }
         return words.prefix(maxWords).joined(separator: " ") + "…"
-    }
-
-    private static func formatOptions(_ options: [String]) -> String {
-        let values = options.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-
-        return values.enumerated().map { index, value in
-            let letter = String(UnicodeScalar(65 + index)!)
-            return "\(letter)) \(value)"
-        }.joined(separator: " ")
-    }
-
-    private static func resolveOptions(_ options: [String]?, question: String) -> [String] {
-        let normalized = options?.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        if let normalized, !normalized.isEmpty {
-            return normalized
-        }
-
-        let extracted = extractOptions(from: question)
-        if !extracted.isEmpty {
-            return extracted
-        }
-
-        return ["Option 1", "Option 2", "Option 3", "Option 4"]
-    }
-
-    private static func extractOptions(from question: String) -> [String] {
-        let pattern = #"(?m)(^|\s)([A-D])\s*[\)\.\:\-\]]\s+"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-
-        let ns = question as NSString
-        let matches = regex.matches(in: question, range: NSRange(location: 0, length: ns.length))
-        guard !matches.isEmpty else { return [] }
-
-        var results: [String] = []
-
-        for index in 0..<matches.count {
-            let match = matches[index]
-            let contentStart = match.range.location + match.range.length
-            let contentEnd: Int
-            if index + 1 < matches.count {
-                contentEnd = matches[index + 1].range.location
-            } else {
-                contentEnd = ns.length
-            }
-
-            let length = max(0, contentEnd - contentStart)
-            let range = NSRange(location: contentStart, length: length)
-            let raw = ns.substring(with: range)
-            let cleaned = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !cleaned.isEmpty {
-                results.append(cleaned)
-            }
-        }
-
-        return results
     }
 }
