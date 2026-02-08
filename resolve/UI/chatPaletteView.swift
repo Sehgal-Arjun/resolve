@@ -7,21 +7,13 @@ struct ChatPaletteView: View {
         case responded
     }
 
-    enum ProblemType: String, CaseIterable, Identifiable {
-        case multipleChoiceSingle = "Multiple Choice – Single Select"
-        case multipleChoiceMulti = "Multiple Choice – Multi Select"
-        case generalQuestion = "General Question"
-        case comparison = "Comparison"
-
-        var id: String { rawValue }
-    }
-
     @State private var text = ""
     @State private var phase: Phase = .composing
     @State private var responseText = ""
     @State private var lastSentText = ""
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
+    @State private var advocateResults: [AdvocateResult] = []
     @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
 
@@ -42,6 +34,10 @@ struct ChatPaletteView: View {
 
     private var isDrawerOpen: Bool {
         selectedAdvocateId != nil
+    }
+
+    private var currentAdvocates: [AdvocateResult] {
+        advocateResults.isEmpty ? AdvocateClient.placeholderResults : advocateResults
     }
 
     private var currentPanelWidth: CGFloat {
@@ -223,8 +219,8 @@ struct ChatPaletteView: View {
                     toggleAdvocateSelection(advocate)
                 } label: {
                     AdvocateCardView(
-                        title: advocate.name,
-                        value: advocateValue(for: advocate),
+                        title: advocate.providerName,
+                        summary: advocate.summary,
                         isSelected: selectedAdvocateId == advocate.id
                     )
                 }
@@ -245,67 +241,24 @@ struct ChatPaletteView: View {
         }
     }
 
-    private var advocates: [AdvocateItem] {
-        [
-            AdvocateItem(
-                id: "chatgpt",
-                name: "ChatGPT",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for ChatGPT. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "gemini",
-                name: "Gemini",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Gemini. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "claude",
-                name: "Claude",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Claude. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "grok",
-                name: "Grok",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Grok. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "deepseek",
-                name: "DeepSeek",
-                singleValue: "B",
-                multiValue: "B, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for DeepSeek. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            )
-        ]
-    }
-
-    private var selectedAdvocate: AdvocateItem? {
-        advocates.first { $0.id == selectedAdvocateId }
-    }
-
-    private func advocateValue(for advocate: AdvocateItem) -> String {
+    private var advocateOptions: [String]? {
         switch submittedProblemType {
-        case .multipleChoiceSingle:
-            return advocate.singleValue
-        case .multipleChoiceMulti:
-            return advocate.multiValue
+        case .multipleChoiceSingle, .multipleChoiceMulti:
+            return ["Option A", "Option B", "Option C", "Option D"]
         case .generalQuestion, .comparison:
-            return ""
+            return nil
         }
     }
 
-    private func toggleAdvocateSelection(_ advocate: AdvocateItem) {
+    private var advocates: [AdvocateResult] {
+        currentAdvocates
+    }
+
+    private var selectedAdvocate: AdvocateResult? {
+        advocates.first { $0.id == selectedAdvocateId }
+    }
+
+    private func toggleAdvocateSelection(_ advocate: AdvocateResult) {
         if selectedAdvocateId == advocate.id {
             selectedAdvocateId = nil
         } else {
@@ -339,10 +292,10 @@ struct ChatPaletteView: View {
         }
     }
 
-    private func advocateDrawer(for advocate: AdvocateItem) -> some View {
+    private func advocateDrawer(for advocate: AdvocateResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(advocate.name)
+                Text(advocate.providerName)
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
@@ -370,7 +323,7 @@ struct ChatPaletteView: View {
                 .foregroundStyle(.secondary)
 
             ScrollView {
-                Text(advocate.reasoning)
+                Text(advocate.explanation)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -451,8 +404,8 @@ struct ChatPaletteView: View {
                             toggleAdvocateSelection(advocate)
                         } label: {
                             AdvocateThesisCardView(
-                                title: advocate.name,
-                                thesis: advocate.thesis,
+                                title: advocate.providerName,
+                                summary: advocate.summary,
                                 isSelected: selectedAdvocateId == advocate.id
                             )
                         }
@@ -593,22 +546,35 @@ struct ChatPaletteView: View {
         Task {
             await MainActor.run {
                 responseText = ""
+                advocateResults = []
+            }
+
+            let advocateTask = Task {
+                await AdvocateClient.fetchAllAdvocates(
+                    problemType: submittedProblemType,
+                    question: lastSentText,
+                    options: advocateOptions
+                )
             }
 
             do {
                 let reply = useLiveAPI
                     ? (try await fetchClaudeResponse(for: lastSentText))
                     : "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur."
+                let results = await advocateTask.value
                 await MainActor.run {
                     responseText = reply
+                    advocateResults = results
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .responded
                     }
                     focused = true
                 }
             } catch {
+                let results = await advocateTask.value
                 await MainActor.run {
                     responseText = "Request failed: \(error.localizedDescription)"
+                    advocateResults = results
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .responded
                     }
@@ -621,18 +587,9 @@ struct ChatPaletteView: View {
 }
 
 private extension ChatPaletteView {
-    struct AdvocateItem: Identifiable {
-        let id: String
-        let name: String
-        let singleValue: String
-        let multiValue: String
-        let thesis: String
-        let reasoning: String
-    }
-
     struct AdvocateCardView: View {
         let title: String
-        let value: String
+        let summary: String
         let isSelected: Bool
 
         var body: some View {
@@ -641,9 +598,11 @@ private extension ChatPaletteView {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                Text(value)
-                    .font(.system(size: 14, weight: .semibold))
+                Text(summary)
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
@@ -661,7 +620,7 @@ private extension ChatPaletteView {
 
     struct AdvocateThesisCardView: View {
         let title: String
-        let thesis: String
+        let summary: String
         let isSelected: Bool
 
         var body: some View {
@@ -670,7 +629,7 @@ private extension ChatPaletteView {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.secondary)
 
-                Text(thesis)
+                Text(summary)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(5)
@@ -727,7 +686,7 @@ private extension ChatPaletteView {
     }
 
     func fetchClaudeResponse(for prompt: String) async throws -> String {
-        let apiKey = APIKeys.CLAUDE_ARBITER
+        let apiKey = APIKeys.ARBITER
         guard !apiKey.isEmpty else {
             return "Missing API key. Add your Anthropic key in Config/APIKeys.swift."
         }
