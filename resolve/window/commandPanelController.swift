@@ -26,6 +26,72 @@ final class CommandPanelController {
         isShown.toggle()
     }
 
+    func setHeight(_ height: CGFloat, animated: Bool) {
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let delta = height - currentFrame.height
+        guard abs(delta) > 0.5 else { return }
+
+        var newFrame = currentFrame
+        newFrame.origin.y -= delta
+        newFrame.size.height = height
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
+    func setSize(width: CGFloat, height: CGFloat, animated: Bool) {
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let deltaHeight = height - currentFrame.height
+        let deltaWidth = width - currentFrame.width
+
+        guard abs(deltaHeight) > 0.5 || abs(deltaWidth) > 0.5 else { return }
+
+        var newFrame = currentFrame
+        newFrame.origin.y -= deltaHeight
+        newFrame.origin.x -= deltaWidth / 2
+        newFrame.size.height = height
+        newFrame.size.width = width
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
+    func setWidth(_ width: CGFloat, animated: Bool) {
+        guard let panel else { return }
+
+        let currentFrame = panel.frame
+        let deltaWidth = width - currentFrame.width
+        guard abs(deltaWidth) > 0.5 else { return }
+
+        var newFrame = currentFrame
+        newFrame.size.width = width
+
+        if animated {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.22
+                panel.animator().setFrame(newFrame, display: true)
+            }
+        } else {
+            panel.setFrame(newFrame, display: true)
+        }
+    }
+
     private func createPanelIfNeeded() {
         guard panel == nil else { return }
 

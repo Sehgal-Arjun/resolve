@@ -54,3 +54,6 @@ playground.xcworkspace
 
 # ===== Crash reports =====
 *.crash
+
+# ===== API Keys =====
+resolve/Config/APIKeys.swift
