@@ -22,14 +22,18 @@ Or if extraction fails:
 }
 
 Rules:
-- Only extract options that are clearly presented as discrete choices (letters, numbers, bullets, comma-separated lists, etc).
-- Preserve the original option text, but remove any original labels.
-- Assign new labels sequentially starting from A.
-- If fewer than 2 options are found, return ok=false.
-- If more than 26 options are found, return ok=false.
-- If options cannot be reliably extracted, return ok=false.
-- Never hallucinate options.
-- Never include explanation text outside JSON.
+- Extract options from these formats:
+  • Labeled lists: A) option  B) option  or  1. option  2. option
+  • Bulleted lists: - option  or  • option
+  • Comma-separated: "apples, oranges, bananas, grapes"
+  • Inline after question mark: "question? option1, option2, option3"
+- Remove original labels (letters/numbers) but keep the option text
+- Assign new labels sequentially starting from A
+- question_stem should be only the question, without the options
+- If fewer than 2 options found, return ok=false
+- If more than 26 options found, return ok=false
+- Never hallucinate options
+- Never include explanation text outside JSON
 """
     
     private struct Message: Encodable {
