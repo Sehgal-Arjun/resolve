@@ -14,6 +14,7 @@ struct ChatPaletteView: View {
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
     @State private var advocateResults: [AdvocateResult] = []
+    @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
 
@@ -43,6 +44,10 @@ struct ChatPaletteView: View {
     private var currentPanelWidth: CGFloat {
         let base = phase == .composing ? baseWidth : expandedWidth
         return isDrawerOpen && phase != .composing ? base + drawerWidth : base
+    }
+
+    private var providerAccentColors: [AdvocateProvider: Color] {
+        stanceProviderColorMap(from: stanceGroups)
     }
 
     private var inputContentOpacity: Double {
@@ -221,7 +226,8 @@ struct ChatPaletteView: View {
                     AdvocateCardView(
                         title: advocate.providerName,
                         summary: advocate.summary,
-                        isSelected: selectedAdvocateId == advocate.id
+                        isSelected: selectedAdvocateId == advocate.id,
+                        accentColor: providerAccentColors[advocate.provider]
                     )
                 }
                 .buttonStyle(.plain)
@@ -406,7 +412,8 @@ struct ChatPaletteView: View {
                             AdvocateThesisCardView(
                                 title: advocate.providerName,
                                 summary: advocate.summary,
-                                isSelected: selectedAdvocateId == advocate.id
+                                isSelected: selectedAdvocateId == advocate.id,
+                                accentColor: providerAccentColors[advocate.provider]
                             )
                         }
                         .buttonStyle(.plain)
@@ -547,6 +554,7 @@ struct ChatPaletteView: View {
             await MainActor.run {
                 responseText = ""
                 advocateResults = []
+                stanceGroups = []
             }
 
             let advocateTask = Task {
@@ -570,6 +578,16 @@ struct ChatPaletteView: View {
                     }
                     focused = true
                 }
+
+                Task {
+                    let groups = await classifyStances(
+                        problemType: submittedProblemType,
+                        advocateResults: results
+                    )
+                    await MainActor.run {
+                        stanceGroups = groups
+                    }
+                }
             } catch {
                 let results = await advocateTask.value
                 await MainActor.run {
@@ -580,8 +598,40 @@ struct ChatPaletteView: View {
                     }
                     focused = true
                 }
+
+                Task {
+                    let groups = await classifyStances(
+                        problemType: submittedProblemType,
+                        advocateResults: results
+                    )
+                    await MainActor.run {
+                        stanceGroups = groups
+                    }
+                }
             }
         }
+    }
+
+    private func stanceProviderColorMap(from groups: [StanceGroup]) -> [AdvocateProvider: Color] {
+        let palette: [Color] = [.blue, .purple, .orange, .teal, .pink]
+        guard !groups.isEmpty else { return [:] }
+
+        let sortedGroups = groups.sorted {
+            if $0.members.count != $1.members.count {
+                return $0.members.count > $1.members.count
+            }
+            return $0.stanceID < $1.stanceID
+        }
+
+        var map: [AdvocateProvider: Color] = [:]
+        for (index, group) in sortedGroups.enumerated() {
+            let color = palette[index % palette.count]
+            for member in group.members {
+                map[member] = color
+            }
+        }
+
+        return map
     }
 
 }
@@ -591,12 +641,23 @@ private extension ChatPaletteView {
         let title: String
         let summary: String
         let isSelected: Bool
+        let accentColor: Color?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    if let accentColor {
+                        Capsule(style: .continuous)
+                            .fill(accentColor.opacity(0.85))
+                            .frame(width: 70, height: 3)
+                    }
+                }
 
                 Text(summary)
                     .font(.system(size: 13, weight: .regular))
@@ -622,12 +683,23 @@ private extension ChatPaletteView {
         let title: String
         let summary: String
         let isSelected: Bool
+        let accentColor: Color?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Spacer(minLength: 8)
+
+                    if let accentColor {
+                        Capsule(style: .continuous)
+                            .fill(accentColor.opacity(0.85))
+                            .frame(width: 70, height: 3)
+                    }
+                }
 
                 Text(summary)
                     .font(.system(size: 14, weight: .regular))
