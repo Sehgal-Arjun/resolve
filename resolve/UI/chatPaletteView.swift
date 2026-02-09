@@ -9,7 +9,8 @@ struct ChatPaletteView: View {
 
     @State private var text = ""
     @State private var phase: Phase = .composing
-    @State private var responseText = ""
+    @State private var arbiterSummaryText = ""
+    @State private var isArbiterThinking = false
     @State private var lastSentText = ""
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
@@ -23,7 +24,6 @@ struct ChatPaletteView: View {
     private let baseWidth: CGFloat = 620
     private let expandedWidth: CGFloat = 760
     private let drawerWidth: CGFloat = 260
-    private let useLiveAPI = false
     private let singleSelectAdvocateWidth: CGFloat = 150
     private let multiSelectAdvocateWidth: CGFloat = 170
     private let generalQuestionAdvocateWidth: CGFloat = 230
@@ -185,22 +185,25 @@ struct ChatPaletteView: View {
             Group {
                 switch phase {
                 case .loading:
-                    VStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.large)
-                        Text("Resolving…")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView()
+                        .controlSize(.regular)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .responded:
-                    ScrollView {
-                        Text(responseText)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 8)
+                    Group {
+                        if isArbiterThinking || arbiterSummaryText.isEmpty {
+                            ProgressView()
+                                .controlSize(.regular)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                arbiterSummaryView(text: arbiterSummaryText)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.bottom, 8)
+                            }
+                        }
                     }
 
                 case .composing:
@@ -373,24 +376,36 @@ struct ChatPaletteView: View {
             Divider()
                 .overlay(Color.white.opacity(0.10))
 
-            generalQuestionHeader
+            headerRow
 
-            ScrollView {
-                Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 8)
+            Group {
+                switch phase {
+                case .loading:
+                    ProgressView()
+                        .controlSize(.regular)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                case .responded:
+                    Group {
+                        if isArbiterThinking || arbiterSummaryText.isEmpty {
+                            ProgressView()
+                                .controlSize(.regular)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                arbiterSummaryView(text: arbiterSummaryText)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.bottom, 8)
+                            }
+                        }
+                    }
+
+                case .composing:
+                    EmptyView()
+                }
             }
-        }
-    }
-
-    private var generalQuestionHeader: some View {
-        HStack(spacing: 8) {
-            Text(submittedProblemType == .comparison ? "Recommendation" : "Answer")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
         }
     }
 
@@ -428,17 +443,26 @@ struct ChatPaletteView: View {
 
     private var headerRow: some View {
         HStack(spacing: 8) {
-            if phase == .loading {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Resolving…")
-                    .font(.system(size: 13, weight: .semibold))
-            } else {
-                Text("Answer")
-                    .font(.system(size: 13, weight: .semibold))
-            }
+            Text("Arbiter’s Summary")
+                .font(.system(size: 13, weight: .semibold))
 
             Spacer()
+
+            Button("Resolve") {}
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .opacity(stanceGroups.count <= 1 ? 0.45 : 1.0)
+                .disabled(stanceGroups.count <= 1)
         }
     }
 
@@ -552,7 +576,8 @@ struct ChatPaletteView: View {
 
         Task {
             await MainActor.run {
-                responseText = ""
+                arbiterSummaryText = ""
+                isArbiterThinking = false
                 advocateResults = []
                 stanceGroups = []
             }
@@ -565,48 +590,37 @@ struct ChatPaletteView: View {
                 )
             }
 
-            do {
-                let reply = useLiveAPI
-                    ? (try await fetchClaudeResponse(for: lastSentText))
-                    : "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur."
-                let results = await advocateTask.value
-                await MainActor.run {
-                    responseText = reply
-                    advocateResults = results
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .responded
-                    }
-                    focused = true
+            let results = await advocateTask.value
+            await MainActor.run {
+                advocateResults = results
+                isArbiterThinking = true
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    phase = .responded
                 }
+                focused = true
+            }
 
-                Task {
-                    let groups = await classifyStances(
-                        problemType: submittedProblemType,
-                        advocateResults: results
-                    )
-                    await MainActor.run {
-                        stanceGroups = groups
-                    }
+            let groups = await classifyStances(
+                problemType: submittedProblemType,
+                advocateResults: results
+            )
+            await MainActor.run {
+                stanceGroups = groups
+            }
+
+            do {
+                let summary = try await ArbiterClient.summarizeInitial(
+                    stanceGroups: groups,
+                    advocateResults: results
+                )
+                await MainActor.run {
+                    arbiterSummaryText = summary
+                    isArbiterThinking = false
                 }
             } catch {
-                let results = await advocateTask.value
                 await MainActor.run {
-                    responseText = "Request failed: \(error.localizedDescription)"
-                    advocateResults = results
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .responded
-                    }
-                    focused = true
-                }
-
-                Task {
-                    let groups = await classifyStances(
-                        problemType: submittedProblemType,
-                        advocateResults: results
-                    )
-                    await MainActor.run {
-                        stanceGroups = groups
-                    }
+                    arbiterSummaryText = "Request failed: \(error.localizedDescription)"
+                    isArbiterThinking = false
                 }
             }
         }
@@ -632,6 +646,63 @@ struct ChatPaletteView: View {
         }
 
         return map
+    }
+
+    private func arbiterSummaryView(text: String) -> Text {
+        let segments = parseTripleAsteriskBoldSegments(text)
+        var output = Text("")
+        for segment in segments {
+            switch segment {
+            case .normal(let value):
+                output = output + Text(value)
+            case .bold(let value):
+                output = output + Text(value).bold()
+            }
+        }
+        return output
+    }
+
+    private enum TripleAsteriskSegment {
+        case normal(String)
+        case bold(String)
+    }
+
+    private func parseTripleAsteriskBoldSegments(_ input: String) -> [TripleAsteriskSegment] {
+        guard input.contains("**") else { return [.normal(input)] }
+
+        var segments: [TripleAsteriskSegment] = []
+        var index = input.startIndex
+
+        func appendNormal(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.normal(value))
+        }
+
+        func appendBold(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.bold(value))
+        }
+
+        while index < input.endIndex {
+            guard let open = input[index...].range(of: "**") else {
+                appendNormal(String(input[index...]))
+                break
+            }
+
+            appendNormal(String(input[index..<open.lowerBound]))
+            let afterOpen = open.upperBound
+
+            guard let close = input[afterOpen...].range(of: "**") else {
+                // No closing marker: treat the rest literally, including the opening **.
+                appendNormal("**" + String(input[afterOpen...]))
+                break
+            }
+
+            appendBold(String(input[afterOpen..<close.lowerBound]))
+            index = close.upperBound
+        }
+
+        return segments
     }
 
 }
