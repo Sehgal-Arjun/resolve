@@ -7,21 +7,17 @@ struct ChatPaletteView: View {
         case responded
     }
 
-    enum ProblemType: String, CaseIterable, Identifiable {
-        case multipleChoiceSingle = "Multiple Choice – Single Select"
-        case multipleChoiceMulti = "Multiple Choice – Multi Select"
-        case generalQuestion = "General Question"
-        case comparison = "Comparison"
-
-        var id: String { rawValue }
-    }
-
     @State private var text = ""
     @State private var phase: Phase = .composing
-    @State private var responseText = ""
+    @State private var arbiterSummaryText = ""
+    @State private var isArbiterThinking = false
+    @State private var roundIndex: Int = 0
+    @State private var isResolveRoundInFlight = false
     @State private var lastSentText = ""
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
+    @State private var advocateResults: [AdvocateResult] = []
+    @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
 
@@ -30,11 +26,11 @@ struct ChatPaletteView: View {
     private let baseWidth: CGFloat = 620
     private let expandedWidth: CGFloat = 760
     private let drawerWidth: CGFloat = 260
-    private let useLiveAPI = false
     private let singleSelectAdvocateWidth: CGFloat = 150
     private let multiSelectAdvocateWidth: CGFloat = 170
     private let generalQuestionAdvocateWidth: CGFloat = 230
     private let advocateTopPadding: CGFloat = 44
+    private let maxRounds: Int = 2
 
     private var canSend: Bool {
         phase != .loading && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -44,9 +40,29 @@ struct ChatPaletteView: View {
         selectedAdvocateId != nil
     }
 
+    private var currentAdvocates: [AdvocateResult] {
+        advocateResults.isEmpty ? AdvocateClient.placeholderResults : advocateResults
+    }
+
     private var currentPanelWidth: CGFloat {
         let base = phase == .composing ? baseWidth : expandedWidth
         return isDrawerOpen && phase != .composing ? base + drawerWidth : base
+    }
+
+    private var providerAccentColors: [AdvocateProvider: Color] {
+        stanceProviderColorMap(from: stanceGroups)
+    }
+
+    private var resolvesRemaining: Int {
+        max(0, maxRounds - roundIndex)
+    }
+
+    private var resolvesRemainingText: String {
+        "\(resolvesRemaining)/\(maxRounds) resolves remaining"
+    }
+
+    private var canResolve: Bool {
+        stanceGroups.count > 1 && roundIndex < maxRounds && !isResolveRoundInFlight
     }
 
     private var inputContentOpacity: Double {
@@ -186,20 +202,37 @@ struct ChatPaletteView: View {
                 case .loading:
                     VStack(spacing: 10) {
                         ProgressView()
-                            .controlSize(.large)
-                        Text("Resolving…")
-                            .font(.system(size: 14, weight: .semibold))
+                            .controlSize(.regular)
+
+                        Text("Advocates are debating…")
+                            .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .responded:
-                    ScrollView {
-                        Text(responseText)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.bottom, 8)
+                    Group {
+                        if isArbiterThinking || arbiterSummaryText.isEmpty {
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .controlSize(.regular)
+
+                                if isResolveRoundInFlight {
+                                    Text("Advocates are debating…")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                arbiterSummaryView(text: arbiterSummaryText)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.bottom, 8)
+                            }
+                        }
                     }
 
                 case .composing:
@@ -223,9 +256,11 @@ struct ChatPaletteView: View {
                     toggleAdvocateSelection(advocate)
                 } label: {
                     AdvocateCardView(
-                        title: advocate.name,
-                        value: advocateValue(for: advocate),
-                        isSelected: selectedAdvocateId == advocate.id
+                        title: advocate.providerName,
+                        summary: advocate.summary,
+                        isSelected: selectedAdvocateId == advocate.id,
+                        accentColor: providerAccentColors[advocate.provider],
+                        isLoading: isResolveRoundInFlight
                     )
                 }
                 .buttonStyle(.plain)
@@ -245,67 +280,24 @@ struct ChatPaletteView: View {
         }
     }
 
-    private var advocates: [AdvocateItem] {
-        [
-            AdvocateItem(
-                id: "chatgpt",
-                name: "ChatGPT",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for ChatGPT. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "gemini",
-                name: "Gemini",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Gemini. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "claude",
-                name: "Claude",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Claude. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "grok",
-                name: "Grok",
-                singleValue: "A",
-                multiValue: "A, C, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for Grok. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            ),
-            AdvocateItem(
-                id: "deepseek",
-                name: "DeepSeek",
-                singleValue: "B",
-                multiValue: "B, D",
-                thesis: "Concise thesis summary placeholder text for the model answer.",
-                reasoning: "Detailed reasoning placeholder for DeepSeek. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
-            )
-        ]
-    }
-
-    private var selectedAdvocate: AdvocateItem? {
-        advocates.first { $0.id == selectedAdvocateId }
-    }
-
-    private func advocateValue(for advocate: AdvocateItem) -> String {
+    private var advocateOptions: [String]? {
         switch submittedProblemType {
-        case .multipleChoiceSingle:
-            return advocate.singleValue
-        case .multipleChoiceMulti:
-            return advocate.multiValue
+        case .multipleChoiceSingle, .multipleChoiceMulti:
+            return ["Option A", "Option B", "Option C", "Option D"]
         case .generalQuestion, .comparison:
-            return ""
+            return nil
         }
     }
 
-    private func toggleAdvocateSelection(_ advocate: AdvocateItem) {
+    private var advocates: [AdvocateResult] {
+        currentAdvocates
+    }
+
+    private var selectedAdvocate: AdvocateResult? {
+        advocates.first { $0.id == selectedAdvocateId }
+    }
+
+    private func toggleAdvocateSelection(_ advocate: AdvocateResult) {
         if selectedAdvocateId == advocate.id {
             selectedAdvocateId = nil
         } else {
@@ -339,10 +331,10 @@ struct ChatPaletteView: View {
         }
     }
 
-    private func advocateDrawer(for advocate: AdvocateItem) -> some View {
+    private func advocateDrawer(for advocate: AdvocateResult) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Text(advocate.name)
+                Text(advocate.providerName)
                     .font(.system(size: 14, weight: .semibold))
 
                 Spacer()
@@ -370,7 +362,7 @@ struct ChatPaletteView: View {
                 .foregroundStyle(.secondary)
 
             ScrollView {
-                Text(advocate.reasoning)
+                Text(advocate.explanation)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -414,24 +406,50 @@ struct ChatPaletteView: View {
             Divider()
                 .overlay(Color.white.opacity(0.10))
 
-            generalQuestionHeader
+            headerRow
 
-            ScrollView {
-                Text("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.bottom, 8)
+            Group {
+                switch phase {
+                case .loading:
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.regular)
+
+                        Text("Advocates are debating…")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                case .responded:
+                    Group {
+                        if isArbiterThinking || arbiterSummaryText.isEmpty {
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .controlSize(.regular)
+
+                                if isResolveRoundInFlight {
+                                    Text("Advocates are debating…")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            ScrollView {
+                                arbiterSummaryView(text: arbiterSummaryText)
+                                    .font(.system(size: 15, weight: .regular))
+                                    .foregroundStyle(.primary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.bottom, 8)
+                            }
+                        }
+                    }
+
+                case .composing:
+                    EmptyView()
+                }
             }
-        }
-    }
-
-    private var generalQuestionHeader: some View {
-        HStack(spacing: 8) {
-            Text(submittedProblemType == .comparison ? "Recommendation" : "Answer")
-                .font(.system(size: 13, weight: .semibold))
-
-            Spacer()
         }
     }
 
@@ -451,9 +469,11 @@ struct ChatPaletteView: View {
                             toggleAdvocateSelection(advocate)
                         } label: {
                             AdvocateThesisCardView(
-                                title: advocate.name,
-                                thesis: advocate.thesis,
-                                isSelected: selectedAdvocateId == advocate.id
+                                title: advocate.providerName,
+                                summary: advocate.summary,
+                                isSelected: selectedAdvocateId == advocate.id,
+                                accentColor: providerAccentColors[advocate.provider],
+                                isLoading: isResolveRoundInFlight
                             )
                         }
                         .buttonStyle(.plain)
@@ -468,17 +488,42 @@ struct ChatPaletteView: View {
 
     private var headerRow: some View {
         HStack(spacing: 8) {
-            if phase == .loading {
-                ProgressView()
-                    .controlSize(.small)
-                Text("Resolving…")
-                    .font(.system(size: 13, weight: .semibold))
-            } else {
-                Text("Answer")
-                    .font(.system(size: 13, weight: .semibold))
-            }
+            Text("Arbiter’s Summary")
+                .font(.system(size: 13, weight: .semibold))
 
             Spacer()
+
+            Text(resolvesRemainingText)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Button("Resolve") {
+                guard canResolve else { return }
+                guard !isArbiterThinking else { return }
+
+                roundIndex += 1
+                isArbiterThinking = true
+                isResolveRoundInFlight = true
+                arbiterSummaryText = ""
+
+                Task {
+                    await performResolveRound()
+                }
+            }
+                .font(.system(size: 12, weight: .semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .opacity(canResolve ? 1.0 : 0.45)
+                .disabled(!canResolve)
         }
     }
 
@@ -592,58 +637,284 @@ struct ChatPaletteView: View {
 
         Task {
             await MainActor.run {
-                responseText = ""
+                arbiterSummaryText = ""
+                isArbiterThinking = false
+                roundIndex = 0
+                isResolveRoundInFlight = false
+                advocateResults = []
+                stanceGroups = []
+            }
+
+            let advocateTask = Task {
+                await AdvocateClient.fetchAllAdvocates(
+                    problemType: submittedProblemType,
+                    question: lastSentText,
+                    options: advocateOptions
+                )
+            }
+
+            let results = await advocateTask.value
+            await MainActor.run {
+                advocateResults = results
+                isArbiterThinking = true
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    phase = .responded
+                }
+                focused = true
+            }
+
+            let groups = await classifyStances(
+                problemType: submittedProblemType,
+                question: lastSentText,
+                advocateResults: results
+            )
+            await MainActor.run {
+                stanceGroups = groups
             }
 
             do {
-                let reply = useLiveAPI
-                    ? (try await fetchClaudeResponse(for: lastSentText))
-                    : "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur."
+                let summary = try await ArbiterClient.summarizeInitial(
+                    stanceGroups: groups,
+                    advocateResults: results
+                )
                 await MainActor.run {
-                    responseText = reply
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .responded
-                    }
-                    focused = true
+                    arbiterSummaryText = summary
+                    isArbiterThinking = false
                 }
             } catch {
                 await MainActor.run {
-                    responseText = "Request failed: \(error.localizedDescription)"
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .responded
-                    }
-                    focused = true
+                    arbiterSummaryText = "Request failed: \(error.localizedDescription)"
+                    isArbiterThinking = false
                 }
             }
         }
     }
 
+    private func performResolveRound() async {
+        let (problemType, rawQuestion, previousResults, previousGroups) = await MainActor.run {
+            (submittedProblemType, lastSentText, advocateResults, stanceGroups)
+        }
+
+        var questionForRound = rawQuestion
+        var labeledOptions: [LabeledOption]? = nil
+
+        if problemType == .multipleChoiceSingle || problemType == .multipleChoiceMulti {
+            let labeled = await LabelerClient.labelMCQ(rawQuestion: rawQuestion)
+            guard labeled.ok,
+                  let stem = labeled.question_stem,
+                  let options = labeled.options,
+                  options.count >= 2,
+                  options.count <= 26 else {
+                let reason = labeled.reason ?? "Could not reliably detect multiple-choice options."
+                await MainActor.run {
+                    arbiterSummaryText = "Resolve round failed: \(reason)"
+                    isArbiterThinking = false
+                }
+                return
+            }
+
+            questionForRound = stem
+            labeledOptions = options
+        }
+
+        let newResults = await AdvocateClient.reconsiderAllAdvocates(
+            problemType: problemType,
+            question: questionForRound,
+            labeledOptions: labeledOptions,
+            previousResults: previousResults,
+            stanceGroups: previousGroups
+        )
+
+        let newGroups = await classifyStances(
+            problemType: problemType,
+            question: rawQuestion,
+            advocateResults: newResults
+        )
+
+        do {
+            let changeSummary = try await ArbiterClient.summarizeChanges(
+                previousGroups: previousGroups,
+                previousResults: previousResults,
+                newGroups: newGroups,
+                newResults: newResults
+            )
+
+            await MainActor.run {
+                advocateResults = newResults
+                stanceGroups = newGroups
+                arbiterSummaryText = changeSummary
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
+            }
+        } catch {
+            await MainActor.run {
+                arbiterSummaryText = "Request failed: \(error.localizedDescription)"
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
+            }
+        }
+    }
+
+    private func stanceProviderColorMap(from groups: [StanceGroup]) -> [AdvocateProvider: Color] {
+        let palette: [Color] = [.blue, .purple, .orange, .teal, .pink]
+        guard !groups.isEmpty else { return [:] }
+
+        let sortedGroups = groups.sorted {
+            if $0.members.count != $1.members.count {
+                return $0.members.count > $1.members.count
+            }
+            return $0.stanceID < $1.stanceID
+        }
+
+        var map: [AdvocateProvider: Color] = [:]
+        for (index, group) in sortedGroups.enumerated() {
+            let color = palette[index % palette.count]
+            for member in group.members {
+                map[member] = color
+            }
+        }
+
+        return map
+    }
+
+    private func arbiterSummaryView(text: String) -> Text {
+        let segments = parseArbiterBoldSegments(text)
+        var output = Text("")
+        for segment in segments {
+            switch segment {
+            case .normal(let value):
+                output = output + Text(value)
+            case .bold(let value):
+                output = output + Text(value).bold()
+            }
+        }
+        return output
+    }
+
+    private enum ArbiterBoldSegment {
+        case normal(String)
+        case bold(String)
+    }
+
+    private func parseArbiterBoldSegments(_ input: String) -> [ArbiterBoldSegment] {
+        // Preferred format: <bold>...</bold>
+        if input.contains("<bold>") {
+            return parseTagBoldSegments(input, openTag: "<bold>", closeTag: "</bold>")
+        }
+
+        // Legacy formats (kept for backward compatibility): ***...*** or **...**
+        if input.contains("***") {
+            return parseMarkerBoldSegments(input, marker: "***")
+        }
+        if input.contains("**") {
+            return parseMarkerBoldSegments(input, marker: "**")
+        }
+
+        return [.normal(input)]
+    }
+
+    private func parseTagBoldSegments(_ input: String, openTag: String, closeTag: String) -> [ArbiterBoldSegment] {
+        var segments: [ArbiterBoldSegment] = []
+        var index = input.startIndex
+
+        func appendNormal(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.normal(value))
+        }
+
+        func appendBold(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.bold(value))
+        }
+
+        while index < input.endIndex {
+            guard let open = input[index...].range(of: openTag) else {
+                appendNormal(String(input[index...]))
+                break
+            }
+
+            appendNormal(String(input[index..<open.lowerBound]))
+            let afterOpen = open.upperBound
+
+            guard let close = input[afterOpen...].range(of: closeTag) else {
+                // No closing tag: treat the rest literally, including the opening tag.
+                appendNormal(openTag + String(input[afterOpen...]))
+                break
+            }
+
+            appendBold(String(input[afterOpen..<close.lowerBound]))
+            index = close.upperBound
+        }
+
+        return segments
+    }
+
+    private func parseMarkerBoldSegments(_ input: String, marker: String) -> [ArbiterBoldSegment] {
+        var segments: [ArbiterBoldSegment] = []
+        var index = input.startIndex
+
+        func appendNormal(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.normal(value))
+        }
+
+        func appendBold(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.bold(value))
+        }
+
+        while index < input.endIndex {
+            guard let open = input[index...].range(of: marker) else {
+                appendNormal(String(input[index...]))
+                break
+            }
+
+            appendNormal(String(input[index..<open.lowerBound]))
+            let afterOpen = open.upperBound
+
+            guard let close = input[afterOpen...].range(of: marker) else {
+                appendNormal(marker + String(input[afterOpen...]))
+                break
+            }
+
+            appendBold(String(input[afterOpen..<close.lowerBound]))
+            index = close.upperBound
+        }
+
+        return segments
+    }
+
 }
 
 private extension ChatPaletteView {
-    struct AdvocateItem: Identifiable {
-        let id: String
-        let name: String
-        let singleValue: String
-        let multiValue: String
-        let thesis: String
-        let reasoning: String
-    }
-
     struct AdvocateCardView: View {
         let title: String
-        let value: String
+        let summary: String
         let isSelected: Bool
+        let accentColor: Color?
+        let isLoading: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
 
-                Text(value)
-                    .font(.system(size: 14, weight: .semibold))
+                    Spacer(minLength: 8)
+
+                    if let accentColor {
+                        Capsule(style: .continuous)
+                            .fill(accentColor.opacity(0.85))
+                            .frame(width: 70, height: 3)
+                    }
+                }
+
+                Text(summary)
+                    .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
@@ -656,21 +927,41 @@ private extension ChatPaletteView {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
+            .overlay(alignment: .trailing) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .padding(.trailing, 10)
+                }
+            }
+            .opacity(isLoading ? 0.65 : 1.0)
         }
     }
 
     struct AdvocateThesisCardView: View {
         let title: String
-        let thesis: String
+        let summary: String
         let isSelected: Bool
+        let accentColor: Color?
+        let isLoading: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
 
-                Text(thesis)
+                    Spacer(minLength: 8)
+
+                    if let accentColor {
+                        Capsule(style: .continuous)
+                            .fill(accentColor.opacity(0.85))
+                            .frame(width: 70, height: 3)
+                    }
+                }
+
+                Text(summary)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                     .lineLimit(5)
@@ -688,6 +979,14 @@ private extension ChatPaletteView {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
+            .overlay(alignment: .trailing) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .padding(.trailing, 10)
+                }
+            }
+            .opacity(isLoading ? 0.65 : 1.0)
         }
     }
 
@@ -727,7 +1026,7 @@ private extension ChatPaletteView {
     }
 
     func fetchClaudeResponse(for prompt: String) async throws -> String {
-        let apiKey = APIKeys.CLAUDE_ARBITER
+        let apiKey = APIKeys.ARBITER
         guard !apiKey.isEmpty else {
             return "Missing API key. Add your Anthropic key in Config/APIKeys.swift."
         }
