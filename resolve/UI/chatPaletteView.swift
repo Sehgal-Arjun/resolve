@@ -11,6 +11,8 @@ struct ChatPaletteView: View {
     @State private var phase: Phase = .composing
     @State private var arbiterSummaryText = ""
     @State private var isArbiterThinking = false
+    @State private var roundIndex: Int = 0
+    @State private var isResolveRoundInFlight = false
     @State private var lastSentText = ""
     @State private var problemType: ProblemType = .multipleChoiceSingle
     @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
@@ -28,6 +30,7 @@ struct ChatPaletteView: View {
     private let multiSelectAdvocateWidth: CGFloat = 170
     private let generalQuestionAdvocateWidth: CGFloat = 230
     private let advocateTopPadding: CGFloat = 44
+    private let maxRounds: Int = 2
 
     private var canSend: Bool {
         phase != .loading && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -48,6 +51,18 @@ struct ChatPaletteView: View {
 
     private var providerAccentColors: [AdvocateProvider: Color] {
         stanceProviderColorMap(from: stanceGroups)
+    }
+
+    private var resolvesRemaining: Int {
+        max(0, maxRounds - roundIndex)
+    }
+
+    private var resolvesRemainingText: String {
+        "\(resolvesRemaining)/\(maxRounds) resolves remaining"
+    }
+
+    private var canResolve: Bool {
+        stanceGroups.count > 1 && roundIndex < maxRounds && !isResolveRoundInFlight
     }
 
     private var inputContentOpacity: Double {
@@ -185,16 +200,30 @@ struct ChatPaletteView: View {
             Group {
                 switch phase {
                 case .loading:
-                    ProgressView()
-                        .controlSize(.regular)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.regular)
+
+                        Text("Advocates are debating…")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .responded:
                     Group {
                         if isArbiterThinking || arbiterSummaryText.isEmpty {
-                            ProgressView()
-                                .controlSize(.regular)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .controlSize(.regular)
+
+                                if isResolveRoundInFlight {
+                                    Text("Advocates are debating…")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             ScrollView {
                                 arbiterSummaryView(text: arbiterSummaryText)
@@ -230,7 +259,8 @@ struct ChatPaletteView: View {
                         title: advocate.providerName,
                         summary: advocate.summary,
                         isSelected: selectedAdvocateId == advocate.id,
-                        accentColor: providerAccentColors[advocate.provider]
+                        accentColor: providerAccentColors[advocate.provider],
+                        isLoading: isResolveRoundInFlight
                     )
                 }
                 .buttonStyle(.plain)
@@ -381,16 +411,30 @@ struct ChatPaletteView: View {
             Group {
                 switch phase {
                 case .loading:
-                    ProgressView()
-                        .controlSize(.regular)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.regular)
+
+                        Text("Advocates are debating…")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 case .responded:
                     Group {
                         if isArbiterThinking || arbiterSummaryText.isEmpty {
-                            ProgressView()
-                                .controlSize(.regular)
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .controlSize(.regular)
+
+                                if isResolveRoundInFlight {
+                                    Text("Advocates are debating…")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
                             ScrollView {
                                 arbiterSummaryView(text: arbiterSummaryText)
@@ -428,7 +472,8 @@ struct ChatPaletteView: View {
                                 title: advocate.providerName,
                                 summary: advocate.summary,
                                 isSelected: selectedAdvocateId == advocate.id,
-                                accentColor: providerAccentColors[advocate.provider]
+                                accentColor: providerAccentColors[advocate.provider],
+                                isLoading: isResolveRoundInFlight
                             )
                         }
                         .buttonStyle(.plain)
@@ -448,7 +493,23 @@ struct ChatPaletteView: View {
 
             Spacer()
 
-            Button("Resolve") {}
+            Text(resolvesRemainingText)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            Button("Resolve") {
+                guard canResolve else { return }
+                guard !isArbiterThinking else { return }
+
+                roundIndex += 1
+                isArbiterThinking = true
+                isResolveRoundInFlight = true
+                arbiterSummaryText = ""
+
+                Task {
+                    await performResolveRound()
+                }
+            }
                 .font(.system(size: 12, weight: .semibold))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -461,8 +522,8 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .opacity(stanceGroups.count <= 1 ? 0.45 : 1.0)
-                .disabled(stanceGroups.count <= 1)
+                .opacity(canResolve ? 1.0 : 0.45)
+                .disabled(!canResolve)
         }
     }
 
@@ -578,6 +639,8 @@ struct ChatPaletteView: View {
             await MainActor.run {
                 arbiterSummaryText = ""
                 isArbiterThinking = false
+                roundIndex = 0
+                isResolveRoundInFlight = false
                 advocateResults = []
                 stanceGroups = []
             }
@@ -602,6 +665,7 @@ struct ChatPaletteView: View {
 
             let groups = await classifyStances(
                 problemType: submittedProblemType,
+                question: lastSentText,
                 advocateResults: results
             )
             await MainActor.run {
@@ -622,6 +686,71 @@ struct ChatPaletteView: View {
                     arbiterSummaryText = "Request failed: \(error.localizedDescription)"
                     isArbiterThinking = false
                 }
+            }
+        }
+    }
+
+    private func performResolveRound() async {
+        let (problemType, rawQuestion, previousResults, previousGroups) = await MainActor.run {
+            (submittedProblemType, lastSentText, advocateResults, stanceGroups)
+        }
+
+        var questionForRound = rawQuestion
+        var labeledOptions: [LabeledOption]? = nil
+
+        if problemType == .multipleChoiceSingle || problemType == .multipleChoiceMulti {
+            let labeled = await LabelerClient.labelMCQ(rawQuestion: rawQuestion)
+            guard labeled.ok,
+                  let stem = labeled.question_stem,
+                  let options = labeled.options,
+                  options.count >= 2,
+                  options.count <= 26 else {
+                let reason = labeled.reason ?? "Could not reliably detect multiple-choice options."
+                await MainActor.run {
+                    arbiterSummaryText = "Resolve round failed: \(reason)"
+                    isArbiterThinking = false
+                }
+                return
+            }
+
+            questionForRound = stem
+            labeledOptions = options
+        }
+
+        let newResults = await AdvocateClient.reconsiderAllAdvocates(
+            problemType: problemType,
+            question: questionForRound,
+            labeledOptions: labeledOptions,
+            previousResults: previousResults,
+            stanceGroups: previousGroups
+        )
+
+        let newGroups = await classifyStances(
+            problemType: problemType,
+            question: rawQuestion,
+            advocateResults: newResults
+        )
+
+        do {
+            let changeSummary = try await ArbiterClient.summarizeChanges(
+                previousGroups: previousGroups,
+                previousResults: previousResults,
+                newGroups: newGroups,
+                newResults: newResults
+            )
+
+            await MainActor.run {
+                advocateResults = newResults
+                stanceGroups = newGroups
+                arbiterSummaryText = changeSummary
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
+            }
+        } catch {
+            await MainActor.run {
+                arbiterSummaryText = "Request failed: \(error.localizedDescription)"
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
             }
         }
     }
@@ -649,7 +778,7 @@ struct ChatPaletteView: View {
     }
 
     private func arbiterSummaryView(text: String) -> Text {
-        let segments = parseTripleAsteriskBoldSegments(text)
+        let segments = parseArbiterBoldSegments(text)
         var output = Text("")
         for segment in segments {
             switch segment {
@@ -662,15 +791,30 @@ struct ChatPaletteView: View {
         return output
     }
 
-    private enum TripleAsteriskSegment {
+    private enum ArbiterBoldSegment {
         case normal(String)
         case bold(String)
     }
 
-    private func parseTripleAsteriskBoldSegments(_ input: String) -> [TripleAsteriskSegment] {
-        guard input.contains("**") else { return [.normal(input)] }
+    private func parseArbiterBoldSegments(_ input: String) -> [ArbiterBoldSegment] {
+        // Preferred format: <bold>...</bold>
+        if input.contains("<bold>") {
+            return parseTagBoldSegments(input, openTag: "<bold>", closeTag: "</bold>")
+        }
 
-        var segments: [TripleAsteriskSegment] = []
+        // Legacy formats (kept for backward compatibility): ***...*** or **...**
+        if input.contains("***") {
+            return parseMarkerBoldSegments(input, marker: "***")
+        }
+        if input.contains("**") {
+            return parseMarkerBoldSegments(input, marker: "**")
+        }
+
+        return [.normal(input)]
+    }
+
+    private func parseTagBoldSegments(_ input: String, openTag: String, closeTag: String) -> [ArbiterBoldSegment] {
+        var segments: [ArbiterBoldSegment] = []
         var index = input.startIndex
 
         func appendNormal(_ value: String) {
@@ -684,7 +828,7 @@ struct ChatPaletteView: View {
         }
 
         while index < input.endIndex {
-            guard let open = input[index...].range(of: "**") else {
+            guard let open = input[index...].range(of: openTag) else {
                 appendNormal(String(input[index...]))
                 break
             }
@@ -692,9 +836,44 @@ struct ChatPaletteView: View {
             appendNormal(String(input[index..<open.lowerBound]))
             let afterOpen = open.upperBound
 
-            guard let close = input[afterOpen...].range(of: "**") else {
-                // No closing marker: treat the rest literally, including the opening **.
-                appendNormal("**" + String(input[afterOpen...]))
+            guard let close = input[afterOpen...].range(of: closeTag) else {
+                // No closing tag: treat the rest literally, including the opening tag.
+                appendNormal(openTag + String(input[afterOpen...]))
+                break
+            }
+
+            appendBold(String(input[afterOpen..<close.lowerBound]))
+            index = close.upperBound
+        }
+
+        return segments
+    }
+
+    private func parseMarkerBoldSegments(_ input: String, marker: String) -> [ArbiterBoldSegment] {
+        var segments: [ArbiterBoldSegment] = []
+        var index = input.startIndex
+
+        func appendNormal(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.normal(value))
+        }
+
+        func appendBold(_ value: String) {
+            guard !value.isEmpty else { return }
+            segments.append(.bold(value))
+        }
+
+        while index < input.endIndex {
+            guard let open = input[index...].range(of: marker) else {
+                appendNormal(String(input[index...]))
+                break
+            }
+
+            appendNormal(String(input[index..<open.lowerBound]))
+            let afterOpen = open.upperBound
+
+            guard let close = input[afterOpen...].range(of: marker) else {
+                appendNormal(marker + String(input[afterOpen...]))
                 break
             }
 
@@ -713,6 +892,7 @@ private extension ChatPaletteView {
         let summary: String
         let isSelected: Bool
         let accentColor: Color?
+        let isLoading: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -747,6 +927,14 @@ private extension ChatPaletteView {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
+            .overlay(alignment: .trailing) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .padding(.trailing, 10)
+                }
+            }
+            .opacity(isLoading ? 0.65 : 1.0)
         }
     }
 
@@ -755,6 +943,7 @@ private extension ChatPaletteView {
         let summary: String
         let isSelected: Bool
         let accentColor: Color?
+        let isLoading: Bool
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -790,6 +979,14 @@ private extension ChatPaletteView {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
             )
+            .overlay(alignment: .trailing) {
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.mini)
+                        .padding(.trailing, 10)
+                }
+            }
+            .opacity(isLoading ? 0.65 : 1.0)
         }
     }
 

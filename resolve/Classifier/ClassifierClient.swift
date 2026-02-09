@@ -3,27 +3,43 @@ import Foundation
 enum ClassifierClient {
     private static let CLASSIFIER_SYSTEM_PROMPT = """
 You are a classifier. Do not answer the question.
-Group the following short answers by semantic stance.
+You will be given a QUESTION and a JSON array of short answers (provider + summary).
+Your job is to group the answers by semantic stance (the bottom-line conclusion), using the QUESTION as context.
 
-Rules:
-- Group answers that mean the same thing, even if worded differently.
-- Each answer must belong to exactly one group.
-- Do not judge which stance is correct.
-- Do not invent new stances.
-- Do not omit any input.
-- Return ONLY valid JSON matching the schema below.
-- Keep stance summaries short (max ~15 words).
+Define the stance ONLY by the bottom-line outcome a reasonable reader would take away:
+- For comparative questions (A vs B): which option is favored (A, B), or "tie/too close", or "depends/unclear".
+- For yes/no questions: yes, no, or uncertain.
 
-Schema:
+CRITICAL MERGING RULES (merge aggressively):
+- Differences in strength or degree do NOT create separate stances.
+  Treat these as the same stance: "A is better", "A is slightly better", "A edges it", "A marginally", "A clearly".
+- Differences in tone, framing, caveats, examples, or reasons do NOT create separate stances.
+- If two answers name the same winner/outcome, they MUST be in the same group.
+- Only create separate groups when the bottom-line outcome differs (different winner, tie/too close, depends/unclear).
+
+Do NOT judge which stance is correct.
+Do NOT invent new stances.
+Do NOT omit any input.
+Each answer must belong to exactly one group.
+
+Optimization objective:
+- Produce the MINIMUM number of groups consistent with the rules above.
+- When unsure, MERGE.
+
+Output ONLY valid JSON matching this schema:
 {
   "groups": [
     {
       "stance_id": "S1",
       "members": ["provider1", "provider2"],
-      "stance_summary": "short description of the shared stance"
+      "stance_summary": "max ~12 words, states the bottom-line outcome"
     }
   ]
 }
+
+Stance summary guidance:
+- For A vs B: "A is better", "B is better", "Too close/tie", or "Depends/unclear".
+- Do not include reasons in the stance_summary.
 """
 
     private struct InputItem: Encodable {
@@ -75,7 +91,7 @@ Schema:
         let groups: [Group]
     }
 
-    static func classifyNarrative(summaries: [AdvocateResult]) async -> ClassifierOutput? {
+    static func classifyNarrative(question: String, summaries: [AdvocateResult]) async -> ClassifierOutput? {
         let apiKey = APIKeys.LABELLER
         guard !apiKey.isEmpty else {
             return nil
@@ -97,10 +113,14 @@ Schema:
             return nil
         }
 
+        let trimmedQuestion = question.trimmingCharacters(in: .whitespacesAndNewlines)
         let userContent = """
-Group these summaries by stance. Input (JSON array):
-\(inputJSON)
-"""
+    QUESTION:
+    \(trimmedQuestion)
+
+    Group these summaries by stance. Input (JSON array):
+    \(inputJSON)
+    """
 
         let body = RequestBody(
             model: "gpt-4.1-nano",

@@ -2,13 +2,14 @@ import Foundation
 
 func classifyStances(
     problemType: ProblemType,
+    question: String,
     advocateResults: [AdvocateResult]
 ) async -> [StanceGroup] {
     switch problemType {
     case .multipleChoiceSingle, .multipleChoiceMulti:
         return classifyMCQStances(problemType: problemType, advocateResults: advocateResults)
     case .generalQuestion, .comparison:
-        return await classifyNarrativeStances(advocateResults: advocateResults)
+        return await classifyNarrativeStances(question: question, advocateResults: advocateResults)
     }
 }
 
@@ -55,11 +56,12 @@ private func classifyMCQStances(
 }
 
 private func classifyNarrativeStances(
+    question: String,
     advocateResults: [AdvocateResult]
 ) async -> [StanceGroup] {
     let providerOrder = AdvocateProvider.allCases
 
-    guard let output = await ClassifierClient.classifyNarrative(summaries: advocateResults) else {
+    guard let output = await ClassifierClient.classifyNarrative(question: question, summaries: advocateResults) else {
         return fallbackOneGroupPerAdvocate(advocateResults: advocateResults)
     }
 
