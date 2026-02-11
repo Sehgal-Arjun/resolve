@@ -2,8 +2,12 @@ import Cocoa
 import SwiftUI
 
 @MainActor
-final class CommandPanelController {
-    static let shared = CommandPanelController()
+final class CommandPanelController: NSObject, NSWindowDelegate {
+    static let primary = CommandPanelController(isPrimary: true)
+    static var shared: CommandPanelController { activeController ?? primary }
+    private static weak var activeController: CommandPanelController?
+
+    let isPrimary: Bool
 
     private var panel: NSPanel?
     private var isShown = false
@@ -12,7 +16,9 @@ final class CommandPanelController {
         panel?.isVisible == true
     }
 
-    private init() {
+    init(isPrimary: Bool) {
+        self.isPrimary = isPrimary
+        super.init()
         createPanelIfNeeded()
     }
 
@@ -39,6 +45,11 @@ final class CommandPanelController {
         position(panel)
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
+    }
+
+    func closeInstance() {
+        guard !isPrimary else { return }
+        panel?.close()
     }
 
     func setHeight(_ height: CGFloat, animated: Bool) {
@@ -111,7 +122,11 @@ final class CommandPanelController {
         guard panel == nil else { return }
 
         let hostingController = NSHostingController(
-            rootView: RootPanelView(authManager: AuthManager.shared)
+            rootView: PanelChromeView(showClose: !isPrimary, onClose: { [weak self] in
+                self?.closeInstance()
+            }) {
+                RootPanelView(authManager: AuthManager.shared)
+            }
         )
 
         let panel = NSPanel(
@@ -131,6 +146,8 @@ final class CommandPanelController {
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
 
         panel.contentView = hostingController.view
         self.panel = panel
@@ -142,5 +159,18 @@ final class CommandPanelController {
         let x = frame.midX - panel.frame.width / 2
         let y = frame.maxY - panel.frame.height - 120
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        CommandPanelController.activeController = self
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if isPrimary {
+            return
+        }
+        CommandPanelManager.shared.removeInstance(self)
     }
 }

@@ -15,7 +15,7 @@ final class AppController: ObservableObject {
         )
 
         KeyboardShortcuts.onKeyUp(for: .togglePalette) {
-            CommandPanelController.shared.toggle()
+            CommandPanelManager.shared.toggleAll()
         }
 
         AuthManager.shared.$state

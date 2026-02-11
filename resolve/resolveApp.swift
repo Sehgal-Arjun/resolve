@@ -9,5 +9,19 @@ struct resolveApp: App {
         Settings {
             EmptyView()
         }
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("New Instance") {
+                    CommandPanelManager.shared.newInstance()
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+                Button("Close Instance") {
+                    CommandPanelController.shared.closeInstance()
+                }
+                .keyboardShortcut("w", modifiers: [.command])
+                .disabled(CommandPanelController.shared.isPrimary)
+            }
+        }
     }
 }
