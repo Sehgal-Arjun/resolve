@@ -8,6 +8,10 @@ final class CommandPanelController {
     private var panel: NSPanel?
     private var isShown = false
 
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
+
     private init() {
         createPanelIfNeeded()
     }
@@ -15,15 +19,26 @@ final class CommandPanelController {
     func toggle() {
         guard let panel else { return }
 
-        if isShown {
+        if panel.isVisible {
             panel.orderOut(nil)
         } else {
-            position(panel)
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
+            show()
         }
+    }
 
-        isShown.toggle()
+    func hide() {
+        guard let panel else { return }
+        guard panel.isVisible else { return }
+        panel.orderOut(nil)
+    }
+
+    func show() {
+        createPanelIfNeeded()
+        guard let panel else { return }
+
+        position(panel)
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
     }
 
     func setHeight(_ height: CGFloat, animated: Bool) {
@@ -96,11 +111,11 @@ final class CommandPanelController {
         guard panel == nil else { return }
 
         let hostingController = NSHostingController(
-            rootView: ChatPaletteView()
+            rootView: RootPanelView(authManager: AuthManager.shared)
         )
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 140),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -115,6 +130,7 @@ final class CommandPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
 
         panel.contentView = hostingController.view
         self.panel = panel
