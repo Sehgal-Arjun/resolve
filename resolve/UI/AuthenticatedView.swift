@@ -3,6 +3,8 @@ import SwiftUI
 struct AuthenticatedView: View {
     let user: AuthManager.ClerkUser
     let onDiveIn: () -> Void
+    let onPastChats: () -> Void
+    let onHowItWorks: () -> Void
     let onSettings: () -> Void
     let onSignOut: () -> Void
 
@@ -25,7 +27,6 @@ struct AuthenticatedView: View {
 
     @State private var isDiveHovering = false
     @State private var isCloseHovering = false
-    @State private var showHowItWorks = false
 
     var body: some View {
         ZStack {
@@ -57,6 +58,13 @@ struct AuthenticatedView: View {
                 .keyboardShortcut(.defaultAction)
 
                 HStack(spacing: 8) {
+                    ResolveInlineLinkButton("Past chats") {
+                        onPastChats()
+                    }
+
+                    Text("·")
+                        .foregroundStyle(.tertiary)
+
                     ResolveInlineLinkButton("Settings") {
                         onSettings()
                     }
@@ -65,7 +73,7 @@ struct AuthenticatedView: View {
                         .foregroundStyle(.tertiary)
 
                     ResolveInlineLinkButton("How does Resolve work?") {
-                        showHowItWorks = true
+                        onHowItWorks()
                     }
 
                     Text("·")
@@ -117,9 +125,6 @@ struct AuthenticatedView: View {
             }
         }
         .frame(width: panelWidth, height: panelHeight)
-        .sheet(isPresented: $showHowItWorks) {
-            HowResolveWorksView()
-        }
         .onAppear {
             CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: true)
         }
@@ -187,19 +192,3 @@ private struct Keycap: View {
     }
 }
 
-private struct HowResolveWorksView: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("How Resolve works")
-                .font(.system(size: 16, weight: .semibold))
-
-            Text("Placeholder content. This will explain the workflow and key concepts.")
-                .font(.system(size: 13, weight: .regular))
-                .foregroundStyle(.secondary)
-
-            Spacer(minLength: 0)
-        }
-        .padding(18)
-        .frame(width: 420, height: 220)
-    }
-}

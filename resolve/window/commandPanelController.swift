@@ -134,7 +134,7 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         let hostingController = NSHostingController(
             rootView: PanelChromeView(showClose: !isPrimary, onClose: { [weak self] in
                 self?.closeInstance()
-            }) {
+            }, controller: self) {
                 RootPanelView(authManager: AuthManager.shared)
             }
         )

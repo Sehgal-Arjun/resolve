@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct SettingsPanelView: View {
+struct PastChatsView: View {
     let onBack: () -> Void
 
     private let cardWidth: CGFloat = 520
@@ -26,7 +26,7 @@ struct SettingsPanelView: View {
                     }
                     .buttonStyle(.plain)
 
-                    Text("Settings")
+                    Text("Past chats")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
 
@@ -34,7 +34,7 @@ struct SettingsPanelView: View {
                 }
                 .padding(.bottom, 8)
 
-                Text("Coming soon")
+                Text("No past chats yet")
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.tertiary)
 

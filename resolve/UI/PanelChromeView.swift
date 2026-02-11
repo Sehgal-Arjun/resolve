@@ -12,6 +12,10 @@ private struct ResolveChatPhaseKey: EnvironmentKey {
     static let defaultValue: String = "other"
 }
 
+private struct ResolvePanelControllerKey: EnvironmentKey {
+    static let defaultValue: CommandPanelController? = nil
+}
+
 extension EnvironmentValues {
     var resolveCanCloseInstance: Bool {
         get { self[ResolveCanCloseInstanceKey.self] }
@@ -27,11 +31,17 @@ extension EnvironmentValues {
         get { self[ResolveChatPhaseKey.self] }
         set { self[ResolveChatPhaseKey.self] = newValue }
     }
+    
+    var resolvePanelController: CommandPanelController? {
+        get { self[ResolvePanelControllerKey.self] }
+        set { self[ResolvePanelControllerKey.self] = newValue }
+    }
 }
 
 struct PanelChromeView<Content: View>: View {
     let showClose: Bool
     let onClose: () -> Void
+    let controller: CommandPanelController
     @ViewBuilder let content: () -> Content
 
     @State private var isHoveringClose = false
@@ -44,5 +54,5 @@ struct PanelChromeView<Content: View>: View {
         content()
             .environment(\.resolveCanCloseInstance, showClose)
             .environment(\.resolveCloseAction, showClose ? onClose : nil)
-    }
+            .environment(\.resolvePanelController, controller)    }
 }

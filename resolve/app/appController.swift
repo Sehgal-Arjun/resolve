@@ -19,6 +19,15 @@ final class AppController: ObservableObject {
             CommandPanelManager.shared.toggleAll()
         }
 
+        KeyboardShortcuts.setShortcut(
+            .init(.n, modifiers: [.command]),
+            for: .diveIn
+        )
+
+        KeyboardShortcuts.onKeyUp(for: .diveIn) {
+            NotificationCenter.default.post(name: diveInNotification, object: nil)
+        }
+
         AuthManager.shared.$state
             .receive(on: DispatchQueue.main)
             .sink { state in
