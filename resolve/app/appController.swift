@@ -18,6 +18,15 @@ final class AppController: ObservableObject {
             CommandPanelManager.shared.toggleAll()
         }
 
+        KeyboardShortcuts.setShortcut(
+            .init(.w, modifiers: [.command]),
+            for: .closeInstance
+        )
+
+        KeyboardShortcuts.onKeyUp(for: .closeInstance) {
+            CommandPanelController.shared.closeInstance()
+        }
+
         AuthManager.shared.$state
             .receive(on: DispatchQueue.main)
             .sink { state in

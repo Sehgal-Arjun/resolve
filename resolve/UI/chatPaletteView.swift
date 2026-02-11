@@ -78,6 +78,14 @@ struct ChatPaletteView: View {
     private var inputContentOffset: CGFloat {
         phase == .loading ? 10 : 0
     }
+    
+    private var phaseString: String {
+        switch phase {
+        case .composing: return "composing"
+        case .loading: return "loading"
+        case .responded: return "responded"
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -99,6 +107,7 @@ struct ChatPaletteView: View {
             }
             .padding(18)
         }
+        .environment(\.resolveChatPhase, phaseString)
         .frame(
             width: currentPanelWidth,
             height: phase == .composing ? baseHeight : expandedHeight
@@ -634,6 +643,8 @@ struct ChatPaletteView: View {
             )
             .opacity(canSend ? 1.0 : 0.55)
             .disabled(!canSend)
+            
+            InlineCloseButton()
         }
         .opacity(inputContentOpacity)
         .offset(y: inputContentOffset)
@@ -1089,6 +1100,37 @@ private extension ChatPaletteView {
         let decoded = try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
         let text = decoded.content.compactMap { $0.text }.joined()
         return text.isEmpty ? "No response returned." : text
+    }
+}
+
+private struct InlineCloseButton: View {
+    @Environment(\.resolveCloseAction) private var closeAction
+    @State private var isHovering = false
+    
+    var body: some View {
+        Group {
+            if let closeAction {
+                Button(action: closeAction) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isHovering ? .primary : .secondary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(isHovering ? 0.10 : 0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .onHover { hovering in
+                    isHovering = hovering
+                }
+                .animation(.easeOut(duration: 0.12), value: isHovering)
+            }
+        }
     }
 }
 

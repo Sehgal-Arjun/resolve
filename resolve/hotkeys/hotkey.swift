@@ -2,4 +2,5 @@ import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
     static let togglePalette = Self("togglePalette")
+    static let closeInstance = Self("closeInstance")
 }

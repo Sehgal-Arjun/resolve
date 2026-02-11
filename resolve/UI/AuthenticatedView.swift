@@ -21,8 +21,10 @@ struct AuthenticatedView: View {
     private let cardCornerRadius: CGFloat = 16
 
     @Environment(\.resolveCanCloseInstance) private var canCloseInstance
+    @Environment(\.resolveCloseAction) private var closeAction
 
     @State private var isDiveHovering = false
+    @State private var isCloseHovering = false
     @State private var showHowItWorks = false
 
     var body: some View {
@@ -82,6 +84,37 @@ struct AuthenticatedView: View {
             }
             .padding(22)
             .frame(width: cardWidth)
+
+            if canCloseInstance, let closeAction {
+                VStack {
+                    HStack {
+                        Spacer()
+
+                        Button(action: closeAction) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(isCloseHovering ? .primary : .secondary)
+                                .frame(width: 28, height: 28)
+                        }
+                        .buttonStyle(.plain)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.white.opacity(isCloseHovering ? 0.10 : 0.06))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                        )
+                        .onHover { hovering in
+                            isCloseHovering = hovering
+                        }
+                        .animation(.easeOut(duration: 0.12), value: isCloseHovering)
+                        .padding(14)
+                    }
+
+                    Spacer()
+                }
+            }
         }
         .frame(width: panelWidth, height: panelHeight)
         .sheet(isPresented: $showHowItWorks) {
@@ -99,13 +132,13 @@ struct AuthenticatedView: View {
                 .foregroundStyle(.tertiary)
 
             VStack(spacing: 6) {
+                ShortcutRow(label: "Toggle visibility", keys: "⌘ ;")
                 ShortcutRow(label: "New resolve", keys: "⌘ N")
                 ShortcutRow(label: "Resolve", keys: "⌘ ⏎")
                 ShortcutRow(label: "New Instance", keys: "⌘ ⇧ N")
                 if canCloseInstance {
                     ShortcutRow(label: "Close instance", keys: "⌘ W")
                 }
-                ShortcutRow(label: "Toggle providers", keys: "⌘ P")
                 ShortcutRow(label: "Settings", keys: "⌘ ,")
             }
         }
