@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import KeyboardShortcuts
 import Combine
 
@@ -16,15 +17,6 @@ final class AppController: ObservableObject {
 
         KeyboardShortcuts.onKeyUp(for: .togglePalette) {
             CommandPanelManager.shared.toggleAll()
-        }
-
-        KeyboardShortcuts.setShortcut(
-            .init(.w, modifiers: [.command]),
-            for: .closeInstance
-        )
-
-        KeyboardShortcuts.onKeyUp(for: .closeInstance) {
-            CommandPanelController.shared.closeInstance()
         }
 
         AuthManager.shared.$state

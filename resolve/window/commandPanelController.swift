@@ -11,6 +11,8 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
 
     private var panel: NSPanel?
     private var isShown = false
+    private var savedFrame: NSRect?
+    private var hasBeenPositioned = false
 
     var isVisible: Bool {
         panel?.isVisible == true
@@ -35,6 +37,7 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
     func hide() {
         guard let panel else { return }
         guard panel.isVisible else { return }
+        savedFrame = panel.frame
         panel.orderOut(nil)
     }
 
@@ -42,7 +45,14 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         createPanelIfNeeded()
         guard let panel else { return }
 
-        position(panel)
+        if let savedFrame = savedFrame {
+            panel.setFrame(savedFrame, display: true)
+            self.savedFrame = nil
+        } else if !hasBeenPositioned {
+            position(panel)
+            hasBeenPositioned = true
+        }
+
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
