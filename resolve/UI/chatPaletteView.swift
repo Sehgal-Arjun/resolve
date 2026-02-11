@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct ChatPaletteView: View {
+    let onBack: (() -> Void)?
+
     enum Phase {
         case composing
         case loading
         case responded
+    }
+
+    init(onBack: (() -> Void)? = nil) {
+        self.onBack = onBack
     }
 
     @State private var text = ""
@@ -529,6 +535,19 @@ struct ChatPaletteView: View {
 
     private var inputBar: some View {
         HStack(spacing: 12) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+
             Button(action: {}) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
