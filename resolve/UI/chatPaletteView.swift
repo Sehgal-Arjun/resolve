@@ -20,8 +20,8 @@ struct ChatPaletteView: View {
     @State private var roundIndex: Int = 0
     @State private var isResolveRoundInFlight = false
     @State private var lastSentText = ""
-    @State private var problemType: ProblemType = .multipleChoiceSingle
-    @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
+    @State private var problemType: ProblemType = .generalQuestion
+    @State private var submittedProblemType: ProblemType = .generalQuestion
     @State private var advocateResults: [AdvocateResult] = []
     @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
