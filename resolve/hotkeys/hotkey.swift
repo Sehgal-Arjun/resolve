@@ -8,3 +8,4 @@ extension KeyboardShortcuts.Name {
 }
 
 let diveInNotification = NSNotification.Name("resolve.diveIn")
+let resolveRoundNotification = NSNotification.Name("resolve.resolveRound")

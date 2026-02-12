@@ -16,6 +16,11 @@ struct resolveApp: App {
                 }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 
+                Button("Resolve") {
+                    NotificationCenter.default.post(name: resolveRoundNotification, object: nil)
+                }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
+
                 Button("Close Instance") {
                     CommandPanelController.shared.closeInstance()
                 }

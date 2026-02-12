@@ -26,6 +26,7 @@ struct ChatPaletteView: View {
     @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
+    @Environment(\.resolvePanelController) private var panelController
 
     private let baseHeight: CGFloat = 140
     private let expandedHeight: CGFloat = 460
@@ -78,6 +79,20 @@ struct ChatPaletteView: View {
     private var inputContentOffset: CGFloat {
         phase == .loading ? 10 : 0
     }
+
+    private func triggerResolveRound() {
+        guard canResolve else { return }
+        guard !isArbiterThinking else { return }
+
+        roundIndex += 1
+        isArbiterThinking = true
+        isResolveRoundInFlight = true
+        arbiterSummaryText = ""
+
+        Task {
+            await performResolveRound()
+        }
+    }
     
     private var phaseString: String {
         switch phase {
@@ -127,6 +142,11 @@ struct ChatPaletteView: View {
         }
         .onChange(of: selectedAdvocateId) { _ in
             CommandPanelController.shared.setWidth(currentPanelWidth, animated: true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: resolveRoundNotification)) { _ in
+            guard let panelController else { return }
+            guard CommandPanelController.shared === panelController else { return }
+            triggerResolveRound()
         }
     }
 
@@ -513,17 +533,7 @@ struct ChatPaletteView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                guard canResolve else { return }
-                guard !isArbiterThinking else { return }
-
-                roundIndex += 1
-                isArbiterThinking = true
-                isResolveRoundInFlight = true
-                arbiterSummaryText = ""
-
-                Task {
-                    await performResolveRound()
-                }
+                triggerResolveRound()
             } label: {
                 HStack(spacing: 6) {
                     Text("Resolve")
