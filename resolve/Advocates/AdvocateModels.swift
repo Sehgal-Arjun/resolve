@@ -4,7 +4,6 @@ enum ProblemType: String, CaseIterable, Identifiable {
     case multipleChoiceSingle = "Multiple Choice – Single Select"
     case multipleChoiceMulti = "Multiple Choice – Multi Select"
     case generalQuestion = "General Question"
-    case comparison = "Comparison"
 
     var id: String { rawValue }
 }

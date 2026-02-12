@@ -153,7 +153,7 @@ struct ChatPaletteView: View {
     private var topArea: some View {
         Group {
             switch submittedProblemType {
-            case .generalQuestion, .comparison:
+            case .generalQuestion:
                 generalQuestionArea
             case .multipleChoiceSingle, .multipleChoiceMulti:
                 multipleChoiceArea
@@ -310,7 +310,7 @@ struct ChatPaletteView: View {
             return singleSelectAdvocateWidth
         case .multipleChoiceMulti:
             return multiSelectAdvocateWidth
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             return generalQuestionAdvocateWidth
         }
     }
@@ -319,7 +319,7 @@ struct ChatPaletteView: View {
         switch submittedProblemType {
         case .multipleChoiceSingle, .multipleChoiceMulti:
             return ["Option A", "Option B", "Option C", "Option D"]
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             return nil
         }
     }
@@ -348,8 +348,6 @@ struct ChatPaletteView: View {
             return "Multi Select"
         case .generalQuestion:
             return "General Question"
-        case .comparison:
-            return "Comparison"
         }
     }
 
@@ -361,8 +359,6 @@ struct ChatPaletteView: View {
             return "checklist"
         case .generalQuestion:
             return "questionmark.circle"
-        case .comparison:
-            return "arrow.left.arrow.right"
         }
     }
 
@@ -625,12 +621,6 @@ struct ChatPaletteView: View {
                     problemType = .generalQuestion
                 } label: {
                     Label("General Question", systemImage: "questionmark.circle")
-                }
-
-                Button {
-                    problemType = .comparison
-                } label: {
-                    Label("Comparison", systemImage: "arrow.left.arrow.right")
                 }
             } label: {
                 Image(systemName: problemTypeIcon)
