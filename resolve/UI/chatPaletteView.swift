@@ -1,10 +1,16 @@
 import SwiftUI
 
 struct ChatPaletteView: View {
+    let onBack: (() -> Void)?
+
     enum Phase {
         case composing
         case loading
         case responded
+    }
+
+    init(onBack: (() -> Void)? = nil) {
+        self.onBack = onBack
     }
 
     @State private var text = ""
@@ -14,12 +20,13 @@ struct ChatPaletteView: View {
     @State private var roundIndex: Int = 0
     @State private var isResolveRoundInFlight = false
     @State private var lastSentText = ""
-    @State private var problemType: ProblemType = .multipleChoiceSingle
-    @State private var submittedProblemType: ProblemType = .multipleChoiceSingle
+    @State private var problemType: ProblemType = .generalQuestion
+    @State private var submittedProblemType: ProblemType = .generalQuestion
     @State private var advocateResults: [AdvocateResult] = []
     @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
     @FocusState private var focused: Bool
+    @Environment(\.resolvePanelController) private var panelController
 
     private let baseHeight: CGFloat = 140
     private let expandedHeight: CGFloat = 460
@@ -73,6 +80,28 @@ struct ChatPaletteView: View {
         phase == .loading ? 10 : 0
     }
 
+    private func triggerResolveRound() {
+        guard canResolve else { return }
+        guard !isArbiterThinking else { return }
+
+        roundIndex += 1
+        isArbiterThinking = true
+        isResolveRoundInFlight = true
+        arbiterSummaryText = ""
+
+        Task {
+            await performResolveRound()
+        }
+    }
+    
+    private var phaseString: String {
+        switch phase {
+        case .composing: return "composing"
+        case .loading: return "loading"
+        case .responded: return "responded"
+        }
+    }
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -92,7 +121,9 @@ struct ChatPaletteView: View {
                 inputBar
             }
             .padding(18)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .environment(\.resolveChatPhase, phaseString)
         .frame(
             width: currentPanelWidth,
             height: phase == .composing ? baseHeight : expandedHeight
@@ -113,12 +144,17 @@ struct ChatPaletteView: View {
         .onChange(of: selectedAdvocateId) { _ in
             CommandPanelController.shared.setWidth(currentPanelWidth, animated: true)
         }
+        .onReceive(NotificationCenter.default.publisher(for: resolveRoundNotification)) { _ in
+            guard let panelController else { return }
+            guard CommandPanelController.shared === panelController else { return }
+            triggerResolveRound()
+        }
     }
 
     private var topArea: some View {
         Group {
             switch submittedProblemType {
-            case .generalQuestion, .comparison:
+            case .generalQuestion:
                 generalQuestionArea
             case .multipleChoiceSingle, .multipleChoiceMulti:
                 multipleChoiceArea
@@ -275,7 +311,7 @@ struct ChatPaletteView: View {
             return singleSelectAdvocateWidth
         case .multipleChoiceMulti:
             return multiSelectAdvocateWidth
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             return generalQuestionAdvocateWidth
         }
     }
@@ -284,7 +320,7 @@ struct ChatPaletteView: View {
         switch submittedProblemType {
         case .multipleChoiceSingle, .multipleChoiceMulti:
             return ["Option A", "Option B", "Option C", "Option D"]
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             return nil
         }
     }
@@ -313,8 +349,6 @@ struct ChatPaletteView: View {
             return "Multi Select"
         case .generalQuestion:
             return "General Question"
-        case .comparison:
-            return "Comparison"
         }
     }
 
@@ -326,8 +360,6 @@ struct ChatPaletteView: View {
             return "checklist"
         case .generalQuestion:
             return "questionmark.circle"
-        case .comparison:
-            return "arrow.left.arrow.right"
         }
     }
 
@@ -497,17 +529,15 @@ struct ChatPaletteView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            Button("Resolve") {
-                guard canResolve else { return }
-                guard !isArbiterThinking else { return }
+            Button {
+                triggerResolveRound()
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Resolve")
 
-                roundIndex += 1
-                isArbiterThinking = true
-                isResolveRoundInFlight = true
-                arbiterSummaryText = ""
-
-                Task {
-                    await performResolveRound()
+                    if canResolve && !isArbiterThinking {
+                        ResolveKeycap("⌘ ⇧ R")
+                    }
                 }
             }
                 .font(.system(size: 12, weight: .semibold))
@@ -529,6 +559,19 @@ struct ChatPaletteView: View {
 
     private var inputBar: some View {
         HStack(spacing: 12) {
+            if let onBack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+            }
+
             Button(action: {}) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
@@ -580,12 +623,6 @@ struct ChatPaletteView: View {
                 } label: {
                     Label("General Question", systemImage: "questionmark.circle")
                 }
-
-                Button {
-                    problemType = .comparison
-                } label: {
-                    Label("Comparison", systemImage: "arrow.left.arrow.right")
-                }
             } label: {
                 Image(systemName: problemTypeIcon)
                     .font(.system(size: 14, weight: .semibold))
@@ -615,6 +652,8 @@ struct ChatPaletteView: View {
             )
             .opacity(canSend ? 1.0 : 0.55)
             .disabled(!canSend)
+            
+            InlineCloseButton()
         }
         .opacity(inputContentOpacity)
         .offset(y: inputContentOffset)
@@ -1070,6 +1109,61 @@ private extension ChatPaletteView {
         let decoded = try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
         let text = decoded.content.compactMap { $0.text }.joined()
         return text.isEmpty ? "No response returned." : text
+    }
+}
+
+private struct InlineCloseButton: View {
+    @Environment(\.resolveCloseAction) private var closeAction
+    @State private var isHovering = false
+    
+    var body: some View {
+        Group {
+            if let closeAction {
+                Button(action: closeAction) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(isHovering ? .primary : .secondary)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(isHovering ? 0.10 : 0.06))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .onHover { hovering in
+                    isHovering = hovering
+                }
+                .animation(.easeOut(duration: 0.12), value: isHovering)
+            }
+        }
+    }
+}
+
+private struct ResolveKeycap: View {
+    let keys: String
+
+    init(_ keys: String) {
+        self.keys = keys
+    }
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
     }
 }
 

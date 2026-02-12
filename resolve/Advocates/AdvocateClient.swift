@@ -238,7 +238,7 @@ enum AdvocateClient {
                 "Output ONLY a comma+space separated list of option letters in sorted order (e.g. '\(sample.isEmpty ? "A, B, D" : sample)'). No other text.",
                 formattedOptions.isEmpty ? nil : "OPTIONS: \(formattedOptions)"
             )
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             return (
                 "NARRATIVE",
                 "Output exactly one sentence (max 22 words) that directly answers the question.",
@@ -310,7 +310,7 @@ enum AdvocateClient {
         case .multipleChoiceMulti:
             normalizedType = "MULTI_SELECT"
             summaryFormat = "Output ONLY a comma+space separated list of option letters in sorted order (e.g. '\(options.prefix(3).map { $0.label }.joined(separator: ", "))'). No other text."
-        case .generalQuestion, .comparison:
+        case .generalQuestion:
             normalizedType = "NARRATIVE"
             summaryFormat = "Output exactly one sentence (max 22 words) that directly answers the question."
         }

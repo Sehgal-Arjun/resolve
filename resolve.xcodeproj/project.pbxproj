@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		DC6314A42F3719F200055301 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = DC6314A32F3719F200055301 /* KeyboardShortcuts */; };
+		DCE3B5E32F7C8A6B00A1B2C5 /* ClerkKit in Frameworks */ = {isa = PBXBuildFile; productRef = DCE3B5E22F7C8A6B00A1B2C4 /* ClerkKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -33,9 +34,22 @@
 		DC6314822F37019700055301 /* resolveUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = resolveUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DC63151C2F3C0D9700055301 /* Exceptions for "resolve" folder in "resolve" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DC6314692F37019600055301 /* resolve */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		DC63146C2F37019600055301 /* resolve */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DC63151C2F3C0D9700055301 /* Exceptions for "resolve" folder in "resolve" target */,
+			);
 			path = resolve;
 			sourceTree = "<group>";
 		};
@@ -56,6 +70,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DCE3B5E32F7C8A6B00A1B2C5 /* ClerkKit in Frameworks */,
 				DC6314A42F3719F200055301 /* KeyboardShortcuts in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -117,6 +132,7 @@
 			);
 			name = resolve;
 			packageProductDependencies = (
+				DCE3B5E22F7C8A6B00A1B2C4 /* ClerkKit */,
 				DC6314A32F3719F200055301 /* KeyboardShortcuts */,
 			);
 			productName = resolve;
@@ -202,6 +218,7 @@
 			mainGroup = DC6314612F37019600055301;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+				DCE3B5E12F7C8A6B00A1B2C3 /* XCRemoteSwiftPackageReference "clerk-ios" */,
 				DC6314A22F3719F200055301 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -404,6 +421,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = resolve/resolve.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -411,6 +430,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = resolve/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -419,6 +439,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = arjunsehgal.resolve;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -431,6 +452,8 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = resolve/resolve.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -438,6 +461,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = resolve/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -446,6 +470,7 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = arjunsehgal.resolve;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -570,6 +595,14 @@
 				minimumVersion = 2.4.0;
 			};
 		};
+		DCE3B5E12F7C8A6B00A1B2C3 /* XCRemoteSwiftPackageReference "clerk-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/clerk/clerk-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.0.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -577,6 +610,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = DC6314A22F3719F200055301 /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
 			productName = KeyboardShortcuts;
+		};
+		DCE3B5E22F7C8A6B00A1B2C4 /* ClerkKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = DCE3B5E12F7C8A6B00A1B2C3 /* XCRemoteSwiftPackageReference "clerk-ios" */;
+			productName = ClerkKit;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -2,28 +2,64 @@ import Cocoa
 import SwiftUI
 
 @MainActor
-final class CommandPanelController {
-    static let shared = CommandPanelController()
+final class CommandPanelController: NSObject, NSWindowDelegate {
+    static let primary = CommandPanelController(isPrimary: true)
+    static var shared: CommandPanelController { activeController ?? primary }
+    private static weak var activeController: CommandPanelController?
+
+    let isPrimary: Bool
 
     private var panel: NSPanel?
     private var isShown = false
+    private var savedFrame: NSRect?
+    private var hasBeenPositioned = false
 
-    private init() {
+    var isVisible: Bool {
+        panel?.isVisible == true
+    }
+
+    init(isPrimary: Bool) {
+        self.isPrimary = isPrimary
+        super.init()
         createPanelIfNeeded()
     }
 
     func toggle() {
         guard let panel else { return }
 
-        if isShown {
+        if panel.isVisible {
             panel.orderOut(nil)
         } else {
+            show()
+        }
+    }
+
+    func hide() {
+        guard let panel else { return }
+        guard panel.isVisible else { return }
+        savedFrame = panel.frame
+        panel.orderOut(nil)
+    }
+
+    func show() {
+        createPanelIfNeeded()
+        guard let panel else { return }
+
+        if let savedFrame = savedFrame {
+            panel.setFrame(savedFrame, display: true)
+            self.savedFrame = nil
+        } else if !hasBeenPositioned {
             position(panel)
-            NSApp.activate(ignoringOtherApps: true)
-            panel.makeKeyAndOrderFront(nil)
+            hasBeenPositioned = true
         }
 
-        isShown.toggle()
+        NSApp.activate(ignoringOtherApps: true)
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func closeInstance() {
+        guard !isPrimary else { return }
+        panel?.close()
     }
 
     func setHeight(_ height: CGFloat, animated: Bool) {
@@ -96,11 +132,15 @@ final class CommandPanelController {
         guard panel == nil else { return }
 
         let hostingController = NSHostingController(
-            rootView: ChatPaletteView()
+            rootView: PanelChromeView(showClose: !isPrimary, onClose: { [weak self] in
+                self?.closeInstance()
+            }, controller: self) {
+                RootPanelView(authManager: AuthManager.shared)
+            }
         )
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 140),
+            contentRect: NSRect(x: 0, y: 0, width: 520, height: 540),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -115,6 +155,9 @@ final class CommandPanelController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.hidesOnDeactivate = false
+        panel.isReleasedWhenClosed = false
+        panel.delegate = self
 
         panel.contentView = hostingController.view
         self.panel = panel
@@ -126,5 +169,18 @@ final class CommandPanelController {
         let x = frame.midX - panel.frame.width / 2
         let y = frame.maxY - panel.frame.height - 120
         panel.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    // MARK: - NSWindowDelegate
+
+    func windowDidBecomeKey(_ notification: Notification) {
+        CommandPanelController.activeController = self
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        if isPrimary {
+            return
+        }
+        CommandPanelManager.shared.removeInstance(self)
     }
 }

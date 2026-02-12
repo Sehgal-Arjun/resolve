@@ -8,7 +8,7 @@ func classifyStances(
     switch problemType {
     case .multipleChoiceSingle, .multipleChoiceMulti:
         return classifyMCQStances(problemType: problemType, advocateResults: advocateResults)
-    case .generalQuestion, .comparison:
+    case .generalQuestion:
         return await classifyNarrativeStances(question: question, advocateResults: advocateResults)
     }
 }
