@@ -50,8 +50,16 @@ struct AuthenticatedView: View {
                     Spacer(minLength: 0)
                 }
 
-                Button("Get started") {
+                Button {
                     onDiveIn()
+                } label: {
+                    HStack(spacing: 10) {
+                        Text("Get started")
+
+                        Spacer(minLength: 0)
+
+                        Keycap("⌘ N")
+                    }
                 }
                 .buttonStyle(ResolvePrimaryButtonStyle(isHovering: isDiveHovering))
                 .onHover { isDiveHovering = $0 }
@@ -138,8 +146,8 @@ struct AuthenticatedView: View {
 
             VStack(spacing: 6) {
                 ShortcutRow(label: "Toggle visibility", keys: "⌘ ;")
-                ShortcutRow(label: "New resolve", keys: "⌘ N")
-                ShortcutRow(label: "Resolve", keys: "⌘ ⏎")
+                ShortcutRow(label: "Get started", keys: "⌘ N")
+                ShortcutRow(label: "Resolve", keys: "⌘ ⇧ R")
                 ShortcutRow(label: "New Instance", keys: "⌘ ⇧ N")
                 if canCloseInstance {
                     ShortcutRow(label: "Close instance", keys: "⌘ W")
@@ -183,7 +191,7 @@ private struct Keycap: View {
             .padding(.vertical, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
+                    .fill(Color.white.opacity(0.06)) 
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)

@@ -512,7 +512,7 @@ struct ChatPaletteView: View {
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(.secondary)
 
-            Button("Resolve") {
+            Button {
                 guard canResolve else { return }
                 guard !isArbiterThinking else { return }
 
@@ -523,6 +523,14 @@ struct ChatPaletteView: View {
 
                 Task {
                     await performResolveRound()
+                }
+            } label: {
+                HStack(spacing: 6) {
+                    Text("Resolve")
+
+                    if canResolve && !isArbiterThinking {
+                        ResolveKeycap("⌘ ⇧ R")
+                    }
                 }
             }
                 .font(.system(size: 12, weight: .semibold))
@@ -1131,6 +1139,30 @@ private struct InlineCloseButton: View {
                 .animation(.easeOut(duration: 0.12), value: isHovering)
             }
         }
+    }
+}
+
+private struct ResolveKeycap: View {
+    let keys: String
+
+    init(_ keys: String) {
+        self.keys = keys
+    }
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
     }
 }
 
