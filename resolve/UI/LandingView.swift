@@ -49,6 +49,7 @@ struct LandingView: View {
             }
             .padding(22)
             .frame(width: cardWidth)
+            .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
         }
         .frame(width: cardWidth, height: cardHeight)
         .onAppear {

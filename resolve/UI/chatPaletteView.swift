@@ -121,6 +121,7 @@ struct ChatPaletteView: View {
                 inputBar
             }
             .padding(18)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .environment(\.resolveChatPhase, phaseString)
         .frame(

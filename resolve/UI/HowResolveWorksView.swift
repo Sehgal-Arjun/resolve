@@ -145,6 +145,7 @@ struct HowResolveWorksView: View {
                 .padding(.horizontal, 22)
                 .frame(width: cardWidth, alignment: .leading)
             }
+            .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
         }
     }
 }

@@ -87,6 +87,7 @@ struct FinishSignUpView: View {
                 Spacer(minLength: 0)
             }
             .padding(40)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .frame(width: cardWidth, height: cardHeight)
         .animation(.easeInOut(duration: 0.28), value: stateKind)

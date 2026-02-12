@@ -42,6 +42,7 @@ struct PastChatsView: View {
             }
             .padding(22)
             .frame(width: cardWidth)
+            .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
         }
     }
 }

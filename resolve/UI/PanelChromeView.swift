@@ -54,5 +54,7 @@ struct PanelChromeView<Content: View>: View {
         content()
             .environment(\.resolveCanCloseInstance, showClose)
             .environment(\.resolveCloseAction, showClose ? onClose : nil)
-            .environment(\.resolvePanelController, controller)    }
+            .environment(\.resolvePanelController, controller)
+            .ignoresSafeArea()
+    }
 }
