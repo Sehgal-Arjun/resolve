@@ -17,8 +17,11 @@ struct RootPanelView: View {
 
     var body: some View {
         Group {
-            switch authManager.state {
-            case .signedIn(let user):
+            if authManager.isLoadingAuth {
+                Text("Signing in...")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            } else if authManager.isAuthenticated, let user = authManager.currentUser {
                 switch signedInRoute {
                 case .home:
                     AuthenticatedView(
@@ -41,9 +44,7 @@ struct RootPanelView: View {
                 case .main:
                     MainAppPanelView(onBack: { signedInRoute = .home })
                 }
-            case .signUpNeedsDetails, .signUpNeedsPhoneCode:
-                FinishSignUpView()
-            case .signedOut, .signingIn:
+            } else {
                 LandingView()
             }
         }
@@ -56,6 +57,7 @@ struct RootPanelView: View {
             }
         }
         .onAppear {
+            Task { await authManager.refreshAuthState() }
             diveInToken = NotificationCenter.default.addObserver(
                 forName: diveInNotification,
                 object: nil,
@@ -66,6 +68,9 @@ struct RootPanelView: View {
                     signedInRoute = .main
                 }
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await authManager.refreshAuthState() }
         }
         .onDisappear {
             if let token = diveInToken {

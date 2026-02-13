@@ -34,7 +34,7 @@ struct LandingView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
 
-                Button("Continue with Google") {
+                Button("Sign in") {
                     authManager.startSignIn()
                 }
                 .buttonStyle(ResolvePrimaryButtonStyle(isHovering: isContinueHovering))
