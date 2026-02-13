@@ -1,33 +1,19 @@
 import Foundation
 
 enum ArbiterClient {
+    private static let service = ResolveAIService()
     struct ArbiterError: LocalizedError {
         let message: String
         var errorDescription: String? { message }
     }
 
     static func summarizeInitial(stanceGroups: [StanceGroup], advocateResults: [AdvocateResult]) async throws -> String {
-        let apiKey = APIKeys.ARBITER
-        guard !apiKey.isEmpty else {
-            throw ArbiterError(message: "Missing API key. Add your OpenAI key in resolve/Config/APIKeys.swift (APIKeys.ARBITER).")
-        }
-
         if stanceGroups.count == 1 {
             return try await summarizeSingleStance(
                 stanceSummary: stanceGroups[0].stanceSummary,
-                advocateResults: advocateResults,
-                apiKey: apiKey
+                advocateResults: advocateResults
             )
         }
-
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            throw ArbiterError(message: "Invalid API URL.")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let system = """
     You are an arbiter. Your job is to summarize the different stances held by the advocates and the reasoning behind each stance.
@@ -79,42 +65,7 @@ STANCE MAPPING (JSON array):
 FULL EXPLANATIONS:
 \(explanations)
 """
-
-        let body = RequestBody(
-            model: "gpt-4.1-nano",
-            messages: [
-                .init(role: "system", content: system),
-                .init(role: "user", content: userPrompt)
-            ],
-            temperature: 0.2,
-            maxTokens: 850
-        )
-
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ArbiterError(message: "Request failed. No HTTP response.")
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            if let decoded = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(decoded.error.message)")
-            }
-
-            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
-            throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(bodyText)")
-        }
-
-        let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
-        let text = (decoded.choices.first?.message.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !text.isEmpty else {
-            throw ArbiterError(message: "Arbiter returned an empty response.")
-        }
-
-        return text
+        return try await callArbiter(system: system, user: userPrompt)
     }
 
     static func summarizeChanges(
@@ -135,20 +86,6 @@ FULL EXPLANATIONS:
         if changedProviders.isEmpty {
             return "All advocates stood by their stances."
         }
-
-        let apiKey = APIKeys.ARBITER
-        guard !apiKey.isEmpty else {
-            throw ArbiterError(message: "Missing API key. Add your OpenAI key in resolve/Config/APIKeys.swift (APIKeys.ARBITER).")
-        }
-
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            throw ArbiterError(message: "Invalid API URL.")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let system = """
 You are an arbiter. Summarize CHANGES ONLY between two rounds.
@@ -191,58 +128,13 @@ NEW_RESULTS (JSON array of provider, summary, explanation):
 
 Write one sentence paragraph per provider in CHANGED_PROVIDERS, in the same order as listed.
 """
-
-        let body = RequestBody(
-            model: "gpt-4.1-nano",
-            messages: [
-                .init(role: "system", content: system),
-                .init(role: "user", content: userPrompt)
-            ],
-            temperature: 0.2,
-            maxTokens: 500
-        )
-
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ArbiterError(message: "Request failed. No HTTP response.")
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            if let decoded = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(decoded.error.message)")
-            }
-
-            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
-            throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(bodyText)")
-        }
-
-        let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
-        let text = (decoded.choices.first?.message.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard !text.isEmpty else {
-            throw ArbiterError(message: "Arbiter returned an empty response.")
-        }
-
-        return text
+        return try await callArbiter(system: system, user: userPrompt)
     }
 
     private static func summarizeSingleStance(
         stanceSummary: String,
-        advocateResults: [AdvocateResult],
-        apiKey: String
+        advocateResults: [AdvocateResult]
     ) async throws -> String {
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            throw ArbiterError(message: "Invalid API URL.")
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let system = """
 You write a brief rationale paragraph for a single shared stance.
 
@@ -270,36 +162,7 @@ ADVOCATE SUMMARIES:
 ADVOCATE EXPLANATIONS:
 \(explanations.joined(separator: "\n\n---\n\n"))
 """
-
-        let body = RequestBody(
-            model: "gpt-4.1-nano",
-            messages: [
-                .init(role: "system", content: system),
-                .init(role: "user", content: user)
-            ],
-            temperature: 0.2,
-            maxTokens: 220
-        )
-
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw ArbiterError(message: "Request failed. No HTTP response.")
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            if let decoded = try? JSONDecoder().decode(OpenAIErrorResponse.self, from: data) {
-                throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(decoded.error.message)")
-            }
-
-            let bodyText = String(data: data, encoding: .utf8) ?? "<non-utf8 body>"
-            throw ArbiterError(message: "Arbiter HTTP \(httpResponse.statusCode): \(bodyText)")
-        }
-
-        let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
-        let rationale = (decoded.choices.first?.message.content ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let rationale = try await callArbiter(system: system, user: user)
 
         let header = "All advocates agreed with this stance: <bold>\(stanceSummary)</bold>"
 
@@ -308,6 +171,23 @@ ADVOCATE EXPLANATIONS:
         }
 
         return header + "\n" + rationale
+    }
+
+    private static func callArbiter(system: String, user: String) async throws -> String {
+        let prompt = "SYSTEM:\n\(system)\n\nUSER:\n\(user)"
+
+        do {
+            let response = try await service.arbiter(prompt: prompt)
+            let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty {
+                throw ArbiterError(message: "Arbiter returned an empty response.")
+            }
+            return text
+        } catch let error as ArbiterError {
+            throw error
+        } catch {
+            throw ArbiterError(message: "Arbiter request failed: \(error)")
+        }
     }
 
     private static func buildProviderStanceMapping(stanceGroups: [StanceGroup]) -> [[String: String]] {
@@ -355,43 +235,5 @@ ADVOCATE EXPLANATIONS:
                 "explanation": result.explanation
             ]
         }
-    }
-}
-
-private extension ArbiterClient {
-    struct RequestBody: Encodable {
-        struct Message: Encodable {
-            let role: String
-            let content: String
-        }
-
-        let model: String
-        let messages: [Message]
-        let temperature: Double
-        let maxTokens: Int
-
-        enum CodingKeys: String, CodingKey {
-            case model
-            case messages
-            case temperature
-            case maxTokens = "max_tokens"
-        }
-    }
-
-    struct ResponseBody: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable {
-                let content: String
-            }
-            let message: Message
-        }
-        let choices: [Choice]
-    }
-
-    struct OpenAIErrorResponse: Decodable {
-        struct ErrorDetail: Decodable {
-            let message: String
-        }
-        let error: ErrorDetail
     }
 }

@@ -1029,86 +1029,15 @@ private extension ChatPaletteView {
         }
     }
 
-    struct AnthropicMessageRequest: Encodable {
-        struct Message: Encodable {
-            let role: String
-            let content: String
-        }
-
-        let model: String
-        let maxTokens: Int
-        let messages: [Message]
-
-        enum CodingKeys: String, CodingKey {
-            case model
-            case maxTokens = "max_tokens"
-            case messages
-        }
-    }
-
-    struct AnthropicMessageResponse: Decodable {
-        struct ContentBlock: Decodable {
-            let type: String
-            let text: String?
-        }
-
-        let content: [ContentBlock]
-    }
-
-    struct AnthropicErrorResponse: Decodable {
-        struct ErrorDetail: Decodable {
-            let type: String
-            let message: String
-        }
-
-        let error: ErrorDetail
-    }
-
     func fetchClaudeResponse(for prompt: String) async throws -> String {
-        let apiKey = APIKeys.ARBITER
-        guard !apiKey.isEmpty else {
-            return "Missing API key. Add your Anthropic key in Config/APIKeys.swift."
+        let service = ResolveAIService()
+        do {
+            let response = try await service.advocateTwo(prompt: prompt)
+            let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? "No response returned." : text
+        } catch {
+            return "Request failed: \(error)"
         }
-
-        guard let url = URL(string: "https://api.anthropic.com/v1/messages") else {
-            return "Invalid API URL."
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.setValue("2023-06-01", forHTTPHeaderField: "Anthropic-Version")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
-        let body = AnthropicMessageRequest(
-            model: "claude-sonnet-4-20250514",
-            maxTokens: 1024,
-            messages: [
-                .init(role: "user", content: prompt)
-            ]
-        )
-
-        request.httpBody = try JSONEncoder().encode(body)
-
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let httpResponse = response as? HTTPURLResponse else {
-            return "Request failed. No HTTP response."
-        }
-
-        guard httpResponse.statusCode == 200 else {
-            if let decodedError = try? JSONDecoder().decode(AnthropicErrorResponse.self, from: data) {
-                return "Request failed (\(httpResponse.statusCode)): \(decodedError.error.message)"
-            }
-
-            let body = String(data: data, encoding: .utf8) ?? ""
-            let trimmed = body.isEmpty ? "No response body." : body
-            return "Request failed (\(httpResponse.statusCode)): \(trimmed)"
-        }
-
-        let decoded = try JSONDecoder().decode(AnthropicMessageResponse.self, from: data)
-        let text = decoded.content.compactMap { $0.text }.joined()
-        return text.isEmpty ? "No response returned." : text
     }
 }
 

@@ -1,6 +1,8 @@
 import Foundation
 
 enum AdvocateClient {
+    private static let service = ResolveAIService()
+
     static let placeholderResults: [AdvocateResult] = [
         AdvocateResult(provider: .openAI, explanation: "Awaiting response.", summary: "Awaiting response."),
         AdvocateResult(provider: .anthropic, explanation: "Awaiting response.", summary: "Awaiting response."),
@@ -114,18 +116,7 @@ enum AdvocateClient {
                         otherReasoning: otherReasoningByProvider[provider] ?? ""
                     )
 
-                    switch provider {
-                    case .openAI:
-                        return await OpenAIClient.fetch(userMessage: userMessage)
-                    case .anthropic:
-                        return await AnthropicClient.fetch(userMessage: userMessage)
-                    case .gemini:
-                        return await GeminiClient.fetch(userMessage: userMessage)
-                    case .deepSeek:
-                        return await DeepSeekClient.fetch(userMessage: userMessage)
-                    case .mistral:
-                        return await MistralClient.fetch(userMessage: userMessage)
-                    }
+                    return await callAdvocate(provider: provider, userMessage: userMessage)
                 }
             }
 
@@ -145,26 +136,49 @@ enum AdvocateClient {
     }
     
     private static func fetchAdvocatesWithMessage(_ userMessage: String) async -> [AdvocateResult] {
-        await withTaskGroup(of: AdvocateResult.self) { group in
-            group.addTask { await OpenAIClient.fetch(userMessage: userMessage) }
-            group.addTask { await AnthropicClient.fetch(userMessage: userMessage) }
-            group.addTask { await GeminiClient.fetch(userMessage: userMessage) }
-            group.addTask { await DeepSeekClient.fetch(userMessage: userMessage) }
-            group.addTask { await MistralClient.fetch(userMessage: userMessage) }
+        let order = AdvocateProvider.allCases
+        let responses = await service.runAdvocates(prompt: userMessage)
 
-            var results: [AdvocateResult] = []
-            for await result in group {
-                results.append(result)
+        var results: [AdvocateResult] = []
+        for (index, provider) in order.enumerated() {
+            guard index < responses.count else {
+                results.append(errorResult(provider: provider, message: "Missing response from backend."))
+                continue
             }
 
-            let order = AdvocateProvider.allCases
-            return results.sorted {
-                guard let leftIndex = order.firstIndex(of: $0.provider),
-                      let rightIndex = order.firstIndex(of: $1.provider) else {
-                    return $0.provider.rawValue < $1.provider.rawValue
-                }
-                return leftIndex < rightIndex
+            let response = responses[index]
+            if response.text.hasPrefix("Error:") {
+                results.append(errorResult(provider: provider, message: response.text))
+                continue
             }
+
+            let parsed = parseResponse(response.text)
+            results.append(AdvocateResult(provider: provider, explanation: parsed.explanation, summary: parsed.summary))
+        }
+
+        return results
+    }
+
+    private static func callAdvocate(provider: AdvocateProvider, userMessage: String) async -> AdvocateResult {
+        do {
+            let response: AIResponse
+            switch provider {
+            case .openAI:
+                response = try await service.advocateOne(prompt: userMessage)
+            case .anthropic:
+                response = try await service.advocateTwo(prompt: userMessage)
+            case .gemini:
+                response = try await service.advocateThree(prompt: userMessage)
+            case .deepSeek:
+                response = try await service.advocateFour(prompt: userMessage)
+            case .mistral:
+                response = try await service.advocateFive(prompt: userMessage)
+            }
+
+            let parsed = parseResponse(response.text)
+            return AdvocateResult(provider: provider, explanation: parsed.explanation, summary: parsed.summary)
+        } catch {
+            return errorResult(provider: provider, message: "Backend error: \(error)")
         }
     }
 
