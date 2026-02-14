@@ -21,10 +21,7 @@ struct ChatPaletteView: View {
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
     @State private var isResolveRoundInFlight = false
-
-    // Keep this (the debated-question card should use it)
     @State private var lastSentText = ""
-
     @State private var problemType: ProblemType = .generalQuestion
     @State private var submittedProblemType: ProblemType = .generalQuestion
     @State private var advocateResults: [AdvocateResult] = []
@@ -32,6 +29,7 @@ struct ChatPaletteView: View {
     @State private var currentConversationId: UUID?
     @State private var lastUserMessageId: UUID?
     @State private var lastPromptTypeForBackend: String = "general"
+    @State private var classifierGroups: [ClassifierGroup] = []
 
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
@@ -76,6 +74,13 @@ struct ChatPaletteView: View {
         ]
     }
 
+    private var shouldShowStanceColors: Bool {
+        phase == .responded &&
+        !isArbiterThinking &&
+        !isResolveRoundInFlight &&
+        !classifierGroups.isEmpty
+    }
+
     private var resolvesRemaining: Int {
         max(0, maxRounds - roundIndex)
     }
@@ -85,7 +90,31 @@ struct ChatPaletteView: View {
     }
 
     private var canResolve: Bool {
-        currentConversationId != nil && lastUserMessageId != nil && roundIndex < maxRounds && !isResolveRoundInFlight
+        currentConversationId != nil &&
+        lastUserMessageId != nil &&
+        roundIndex < maxRounds &&
+        !isResolveRoundInFlight &&
+        !isArbiterThinking
+    }
+
+    private let stancePalette: [Color] = [.blue, .purple, .orange, .teal, .pink]
+
+    private func stanceColor(for provider: AdvocateProvider) -> Color? {
+        let key: String
+        switch provider {
+        case .openAI: key = "openai"
+        case .anthropic: key = "anthropic"
+        case .gemini: key = "gemini"
+        case .deepSeek: key = "deepseek"
+        case .mistral: key = "mistral"
+        }
+
+        for (i, g) in classifierGroups.enumerated() {
+            if g.members.contains(where: { $0.lowercased() == key }) {
+                return stancePalette[i % stancePalette.count]
+            }
+        }
+        return nil
     }
 
     private func promptTypeFor(problemType: ProblemType) -> String {
@@ -332,7 +361,7 @@ struct ChatPaletteView: View {
                         title: advocate.providerName,
                         summary: advocate.summary,
                         isSelected: selectedAdvocateId == advocate.id,
-                        accentColor: providerAccentColors[advocate.provider],
+                        accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
                         isLoading: isResolveRoundInFlight
                     )
                 }
@@ -522,7 +551,7 @@ struct ChatPaletteView: View {
                                 title: advocate.providerName,
                                 summary: advocate.summary,
                                 isSelected: selectedAdvocateId == advocate.id,
-                                accentColor: providerAccentColors[advocate.provider],
+                                accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
                                 isLoading: isResolveRoundInFlight
                             )
                         }
@@ -700,6 +729,7 @@ struct ChatPaletteView: View {
                 roundIndex = 0
                 isResolveRoundInFlight = false
                 advocateResults = []
+                classifierGroups = []
             }
 
             do {
@@ -716,6 +746,7 @@ struct ChatPaletteView: View {
                     lastUserMessageId = response.message.id
                     arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
                     advocateResults = mapAdvocates(from: response.run)
+                    classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
                     isArbiterThinking = false
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .responded
@@ -760,6 +791,7 @@ struct ChatPaletteView: View {
             await MainActor.run {
                 arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
                 advocateResults = mapAdvocates(from: response.run)
+                classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
                 isArbiterThinking = false
                 isResolveRoundInFlight = false
             }
@@ -884,6 +916,7 @@ private extension ChatPaletteView {
         lastSentText = ""
         arbiterSummaryText = ""
         advocateResults = []
+        classifierGroups = []
         roundIndex = 0
         isResolveRoundInFlight = false
         isArbiterThinking = false
@@ -908,7 +941,7 @@ private extension ChatPaletteView {
             let detail = try await api.getConversation(id: conversationId)
             await MainActor.run {
                 currentConversationId = conversationId
-
+                classifierGroups = []
                 let lastUser = detail.messages.last(where: { $0.role.lowercased() == "user" })
                 lastUserMessageId = lastUser?.id
                 lastSentText = lastUser?.content ?? ""
@@ -925,6 +958,7 @@ private extension ChatPaletteView {
         } catch {
             await MainActor.run {
                 lastUserMessageId = nil
+                classifierGroups = []
                 lastSentText = ""
                 arbiterSummaryText = ""
                 withAnimation(.easeInOut(duration: 0.2)) {

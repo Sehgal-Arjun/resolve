@@ -121,12 +121,16 @@ final class BackendAPIClient {
         )
     }
 
-    func getRun(conversationId: UUID, runId: UUID) async throws -> RunDebugResponse {
+    func getRun(conversationId: UUID, runId: UUID) async throws -> RunResult {
         try await getRun(conversationId: conversationId.uuidString, runId: runId.uuidString)
     }
 
-    func getRun(conversationId: String, runId: String) async throws -> RunDebugResponse {
-        try await request(path: "/conversations/\(conversationId)/runs/\(runId)", method: "GET", body: Optional<Int>.none)
+    func getRun(conversationId: String, runId: String) async throws -> RunResult {
+        try await request(
+            path: "/conversations/\(conversationId)/runs/\(runId)",
+            method: "GET",
+            body: Optional<Int>.none
+        )
     }
 
     // MARK: - Core Request
