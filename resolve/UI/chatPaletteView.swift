@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ChatPaletteView: View {
+    let initialConversationId: UUID?
     let onBack: (() -> Void)?
 
     enum Phase {
@@ -9,7 +10,8 @@ struct ChatPaletteView: View {
         case responded
     }
 
-    init(onBack: (() -> Void)? = nil) {
+    init(initialConversationId: UUID? = nil, onBack: (() -> Void)? = nil) {
+        self.initialConversationId = initialConversationId
         self.onBack = onBack
     }
 
@@ -19,14 +21,22 @@ struct ChatPaletteView: View {
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
     @State private var isResolveRoundInFlight = false
+
+    // Keep this (the debated-question card should use it)
     @State private var lastSentText = ""
+
     @State private var problemType: ProblemType = .generalQuestion
     @State private var submittedProblemType: ProblemType = .generalQuestion
     @State private var advocateResults: [AdvocateResult] = []
-    @State private var stanceGroups: [StanceGroup] = []
     @State private var selectedAdvocateId: String?
+    @State private var currentConversationId: UUID?
+    @State private var lastUserMessageId: UUID?
+    @State private var lastPromptTypeForBackend: String = "general"
+
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
+
+    private let api = BackendAPIClient()
 
     private let baseHeight: CGFloat = 140
     private let expandedHeight: CGFloat = 460
@@ -57,7 +67,13 @@ struct ChatPaletteView: View {
     }
 
     private var providerAccentColors: [AdvocateProvider: Color] {
-        stanceProviderColorMap(from: stanceGroups)
+        [
+            .openAI: .blue,
+            .anthropic: .purple,
+            .gemini: .orange,
+            .deepSeek: .teal,
+            .mistral: .pink
+        ]
     }
 
     private var resolvesRemaining: Int {
@@ -69,7 +85,16 @@ struct ChatPaletteView: View {
     }
 
     private var canResolve: Bool {
-        stanceGroups.count > 1 && roundIndex < maxRounds && !isResolveRoundInFlight
+        currentConversationId != nil && lastUserMessageId != nil && roundIndex < maxRounds && !isResolveRoundInFlight
+    }
+
+    private func promptTypeFor(problemType: ProblemType) -> String {
+        switch problemType {
+        case .generalQuestion:
+            return "general"
+        case .multipleChoiceSingle, .multipleChoiceMulti:
+            return "mcq"
+        }
     }
 
     private var inputContentOpacity: Double {
@@ -93,12 +118,39 @@ struct ChatPaletteView: View {
             await performResolveRound()
         }
     }
-    
+
     private var phaseString: String {
         switch phase {
         case .composing: return "composing"
         case .loading: return "loading"
         case .responded: return "responded"
+        }
+    }
+
+    // This is the only “pre-resolve / debated question” UI we keep.
+    private var lastSentPanel: some View {
+        Group {
+            if !lastSentText.isEmpty {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .foregroundStyle(.secondary)
+
+                    Text(lastSentText)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.white.opacity(0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
         }
     }
 
@@ -131,6 +183,11 @@ struct ChatPaletteView: View {
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 focused = true
+            }
+
+            if let initialConversationId {
+                currentConversationId = initialConversationId
+                Task { await loadConversation(conversationId: initialConversationId) }
             }
         }
         .onChange(of: phase) { newPhase in
@@ -206,27 +263,7 @@ struct ChatPaletteView: View {
 
     private var leftColumn: some View {
         VStack(spacing: 12) {
-            if !lastSentText.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(.secondary)
-
-                    Text(lastSentText)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.07))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
+            lastSentPanel
 
             Divider()
                 .overlay(Color.white.opacity(0.10))
@@ -414,26 +451,7 @@ struct ChatPaletteView: View {
 
     private var generalQuestionLeftColumn: some View {
         VStack(spacing: 12) {
-            if !lastSentText.isEmpty {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "sparkles")
-                        .foregroundStyle(.secondary)
-
-                    Text(lastSentText)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(Color.white.opacity(0.07))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-            }
+            lastSentPanel
 
             Divider()
                 .overlay(Color.white.opacity(0.10))
@@ -540,20 +558,20 @@ struct ChatPaletteView: View {
                     }
                 }
             }
-                .font(.system(size: 12, weight: .semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .buttonStyle(.plain)
-                .background(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .fill(Color.white.opacity(0.08))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                )
-                .opacity(canResolve ? 1.0 : 0.45)
-                .disabled(!canResolve)
+            .font(.system(size: 12, weight: .semibold))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .opacity(canResolve ? 1.0 : 0.45)
+            .disabled(!canResolve)
         }
     }
 
@@ -572,7 +590,7 @@ struct ChatPaletteView: View {
                 )
             }
 
-            Button(action: {}) {
+            Button(action: startNewConversation) {
                 Image(systemName: "plus")
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 32, height: 32)
@@ -652,7 +670,7 @@ struct ChatPaletteView: View {
             )
             .opacity(canSend ? 1.0 : 0.55)
             .disabled(!canSend)
-            
+
             InlineCloseButton()
         }
         .opacity(inputContentOpacity)
@@ -666,6 +684,7 @@ struct ChatPaletteView: View {
 
         lastSentText = trimmed
         submittedProblemType = problemType
+        lastPromptTypeForBackend = promptTypeFor(problemType: problemType)
 
         withAnimation(.easeInOut(duration: 0.2)) {
             text = ""
@@ -681,107 +700,66 @@ struct ChatPaletteView: View {
                 roundIndex = 0
                 isResolveRoundInFlight = false
                 advocateResults = []
-                stanceGroups = []
-            }
-
-            let advocateTask = Task {
-                await AdvocateClient.fetchAllAdvocates(
-                    problemType: submittedProblemType,
-                    question: lastSentText,
-                    options: advocateOptions
-                )
-            }
-
-            let results = await advocateTask.value
-            await MainActor.run {
-                advocateResults = results
-                isArbiterThinking = true
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    phase = .responded
-                }
-                focused = true
-            }
-
-            let groups = await classifyStances(
-                problemType: submittedProblemType,
-                question: lastSentText,
-                advocateResults: results
-            )
-            await MainActor.run {
-                stanceGroups = groups
             }
 
             do {
-                let summary = try await ArbiterClient.summarizeInitial(
-                    stanceGroups: groups,
-                    advocateResults: results
+                let conversationId = try await ensureConversationId()
+                let response = try await api.postMessage(
+                    conversationId: conversationId,
+                    content: trimmed,
+                    promptType: lastPromptTypeForBackend,
+                    summaryFormat: nil
                 )
+
                 await MainActor.run {
-                    arbiterSummaryText = summary
+                    currentConversationId = conversationId
+                    lastUserMessageId = response.message.id
+                    arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
+                    advocateResults = mapAdvocates(from: response.run)
                     isArbiterThinking = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        phase = .responded
+                    }
+                    focused = true
                 }
             } catch {
                 await MainActor.run {
                     arbiterSummaryText = "Request failed: \(error.localizedDescription)"
                     isArbiterThinking = false
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        phase = .responded
+                    }
+                    focused = true
                 }
             }
         }
     }
 
     private func performResolveRound() async {
-        let (problemType, rawQuestion, previousResults, previousGroups) = await MainActor.run {
-            (submittedProblemType, lastSentText, advocateResults, stanceGroups)
+        let (conversationId, messageId, promptType) = await MainActor.run {
+            (currentConversationId, lastUserMessageId, lastPromptTypeForBackend)
         }
 
-        var questionForRound = rawQuestion
-        var labeledOptions: [LabeledOption]? = nil
-
-        if problemType == .multipleChoiceSingle || problemType == .multipleChoiceMulti {
-            let labeled = await LabelerClient.labelMCQ(rawQuestion: rawQuestion)
-            guard labeled.ok,
-                  let stem = labeled.question_stem,
-                  let options = labeled.options,
-                  options.count >= 2,
-                  options.count <= 26 else {
-                let reason = labeled.reason ?? "Could not reliably detect multiple-choice options."
-                await MainActor.run {
-                    arbiterSummaryText = "Resolve round failed: \(reason)"
-                    isArbiterThinking = false
-                }
-                return
+        guard let conversationId, let messageId else {
+            await MainActor.run {
+                arbiterSummaryText = "Nothing to resolve yet."
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
             }
-
-            questionForRound = stem
-            labeledOptions = options
+            return
         }
-
-        let newResults = await AdvocateClient.reconsiderAllAdvocates(
-            problemType: problemType,
-            question: questionForRound,
-            labeledOptions: labeledOptions,
-            previousResults: previousResults,
-            stanceGroups: previousGroups
-        )
-
-        let newGroups = await classifyStances(
-            problemType: problemType,
-            question: rawQuestion,
-            advocateResults: newResults
-        )
 
         do {
-            let changeSummary = try await ArbiterClient.summarizeChanges(
-                previousGroups: previousGroups,
-                previousResults: previousResults,
-                newGroups: newGroups,
-                newResults: newResults
+            let response = try await api.resolve(
+                conversationId: conversationId,
+                messageId: messageId,
+                promptType: promptType,
+                summaryFormat: nil
             )
 
             await MainActor.run {
-                advocateResults = newResults
-                stanceGroups = newGroups
-                arbiterSummaryText = changeSummary
+                arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
+                advocateResults = mapAdvocates(from: response.run)
                 isArbiterThinking = false
                 isResolveRoundInFlight = false
             }
@@ -792,28 +770,6 @@ struct ChatPaletteView: View {
                 isResolveRoundInFlight = false
             }
         }
-    }
-
-    private func stanceProviderColorMap(from groups: [StanceGroup]) -> [AdvocateProvider: Color] {
-        let palette: [Color] = [.blue, .purple, .orange, .teal, .pink]
-        guard !groups.isEmpty else { return [:] }
-
-        let sortedGroups = groups.sorted {
-            if $0.members.count != $1.members.count {
-                return $0.members.count > $1.members.count
-            }
-            return $0.stanceID < $1.stanceID
-        }
-
-        var map: [AdvocateProvider: Color] = [:]
-        for (index, group) in sortedGroups.enumerated() {
-            let color = palette[index % palette.count]
-            for member in group.members {
-                map[member] = color
-            }
-        }
-
-        return map
     }
 
     private func arbiterSummaryView(text: String) -> Text {
@@ -836,19 +792,15 @@ struct ChatPaletteView: View {
     }
 
     private func parseArbiterBoldSegments(_ input: String) -> [ArbiterBoldSegment] {
-        // Preferred format: <bold>...</bold>
         if input.contains("<bold>") {
             return parseTagBoldSegments(input, openTag: "<bold>", closeTag: "</bold>")
         }
-
-        // Legacy formats (kept for backward compatibility): ***...*** or **...**
         if input.contains("***") {
             return parseMarkerBoldSegments(input, marker: "***")
         }
         if input.contains("**") {
             return parseMarkerBoldSegments(input, marker: "**")
         }
-
         return [.normal(input)]
     }
 
@@ -876,7 +828,6 @@ struct ChatPaletteView: View {
             let afterOpen = open.upperBound
 
             guard let close = input[afterOpen...].range(of: closeTag) else {
-                // No closing tag: treat the rest literally, including the opening tag.
                 appendNormal(openTag + String(input[afterOpen...]))
                 break
             }
@@ -922,7 +873,91 @@ struct ChatPaletteView: View {
 
         return segments
     }
+}
 
+private extension ChatPaletteView {
+
+    @MainActor
+    func startNewConversation() {
+        currentConversationId = nil
+        lastUserMessageId = nil
+        lastSentText = ""
+        arbiterSummaryText = ""
+        advocateResults = []
+        roundIndex = 0
+        isResolveRoundInFlight = false
+        isArbiterThinking = false
+        withAnimation(.easeInOut(duration: 0.2)) {
+            phase = .composing
+        }
+        focused = true
+    }
+
+    func ensureConversationId() async throws -> UUID {
+        let existing = await MainActor.run { currentConversationId }
+        if let existing { return existing }
+        let conversation = try await api.createConversation(title: nil)
+        await MainActor.run {
+            currentConversationId = conversation.id
+        }
+        return conversation.id
+    }
+
+    func loadConversation(conversationId: UUID) async {
+        do {
+            let detail = try await api.getConversation(id: conversationId)
+            await MainActor.run {
+                currentConversationId = conversationId
+
+                let lastUser = detail.messages.last(where: { $0.role.lowercased() == "user" })
+                lastUserMessageId = lastUser?.id
+                lastSentText = lastUser?.content ?? ""
+                if let pt = lastUser?.promptType {
+                    lastPromptTypeForBackend = pt
+                }
+
+                arbiterSummaryText = ""
+
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    phase = (lastUser != nil) ? .responded : .composing
+                }
+            }
+        } catch {
+            await MainActor.run {
+                lastUserMessageId = nil
+                lastSentText = ""
+                arbiterSummaryText = ""
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    phase = .composing
+                }
+            }
+        }
+    }
+
+    func mapAdvocates(from run: RunResult) -> [AdvocateResult] {
+        run.advocateOutputs.map { output in
+            let provider = mapProvider(output.provider, advocateKey: output.advocateKey)
+
+            let detailed = output.detailedResponse.trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = output.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            return AdvocateResult(
+                provider: provider,
+                explanation: detailed.isEmpty ? "No response." : detailed,
+                summary: summary.isEmpty ? "Summary could not be parsed" : summary
+            )
+        }
+    }
+
+    func mapProvider(_ value: String?, advocateKey: String) -> AdvocateProvider {
+        let normalized = (value ?? advocateKey).lowercased()
+        if normalized.contains("openai") || normalized.contains("chatgpt") { return .openAI }
+        if normalized.contains("anthropic") || normalized.contains("claude") { return .anthropic }
+        if normalized.contains("gemini") || normalized.contains("google") { return .gemini }
+        if normalized.contains("deepseek") { return .deepSeek }
+        if normalized.contains("mistral") { return .mistral }
+        return .openAI
+    }
 }
 
 private extension ChatPaletteView {
@@ -1030,21 +1065,14 @@ private extension ChatPaletteView {
     }
 
     func fetchClaudeResponse(for prompt: String) async throws -> String {
-        let service = ResolveAIService()
-        do {
-            let response = try await service.advocateTwo(prompt: prompt)
-            let text = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? "No response returned." : text
-        } catch {
-            return "Request failed: \(error)"
-        }
+        return "This endpoint is disabled. Resolve uses backend conversation endpoints only."
     }
 }
 
 private struct InlineCloseButton: View {
     @Environment(\.resolveCloseAction) private var closeAction
     @State private var isHovering = false
-    
+
     var body: some View {
         Group {
             if let closeAction {
@@ -1098,11 +1126,10 @@ private struct ResolveKeycap: View {
 
 #Preview {
     ZStack {
-        Color.gray.opacity(0.2) // background to see bounds
+        Color.gray.opacity(0.2)
 
-        ChatPaletteView()
+        ChatPaletteView(initialConversationId: nil)
             .frame(width: 620, height: 420)
     }
     .frame(width: 1000, height: 600)
 }
-

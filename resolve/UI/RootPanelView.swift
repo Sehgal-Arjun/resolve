@@ -12,6 +12,7 @@ struct RootPanelView: View {
     }
 
     @State private var signedInRoute: SignedInRoute = .home
+    @State private var selectedConversationId: UUID?
     @State private var diveInToken: NSObjectProtocol?
     @Environment(\.resolvePanelController) private var panelController
 
@@ -36,13 +37,25 @@ struct RootPanelView: View {
                         }
                     )
                 case .pastChats:
-                    PastChatsView(onBack: { signedInRoute = .home })
+                    PastChatsView(
+                        onBack: { signedInRoute = .home },
+                        onOpenConversation: { conversationId in
+                            selectedConversationId = conversationId
+                            signedInRoute = .main
+                        }
+                    )
                 case .howItWorks:
                     HowResolveWorksView(onBack: { signedInRoute = .home })
                 case .settings:
                     SettingsPanelView(onBack: { signedInRoute = .home })
                 case .main:
-                    MainAppPanelView(onBack: { signedInRoute = .home })
+                    MainAppPanelView(
+                        initialConversationId: selectedConversationId,
+                        onBack: {
+                            selectedConversationId = nil
+                            signedInRoute = .home
+                        }
+                    )
                 }
             } else {
                 LandingView()
