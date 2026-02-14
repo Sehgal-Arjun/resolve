@@ -90,8 +90,16 @@ struct RunResult: Codable, Hashable {
     let arbiterOutput: ArbiterOutput?
     let advocateOutputs: [AdvocateOutput]
     let classifierOutput: ClassifierOutput?
+    let mcqDisagreement: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case runId, runIndex, runType, promptType, arbiterOutput, advocateOutputs, classifierOutput
+        case runId
+        case runIndex
+        case runType
+        case promptType
+        case arbiterOutput
+        case advocateOutputs
+        case classifierOutput
+        case mcqDisagreement = "mcq_disagreement"
     }
 }

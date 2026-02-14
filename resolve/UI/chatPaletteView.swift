@@ -30,6 +30,7 @@ struct ChatPaletteView: View {
     @State private var lastUserMessageId: UUID?
     @State private var lastPromptTypeForBackend: String = "general"
     @State private var classifierGroups: [ClassifierGroup] = []
+    @State private var mcqDisagreement: Bool? = nil
 
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
@@ -74,6 +75,19 @@ struct ChatPaletteView: View {
         ]
     }
 
+    private var hasDisagreement: Bool {
+        switch submittedProblemType {
+        case .generalQuestion:
+            // only enable resolve when classifier says multiple stances
+            return classifierGroups.count > 1
+
+        case .multipleChoiceSingle, .multipleChoiceMulti:
+            // trust backend’s local MCQ disagreement if present; otherwise fall back
+            if let mcqDisagreement { return mcqDisagreement }
+            return classifierGroups.count > 1
+        }
+    }
+
     private var shouldShowStanceColors: Bool {
         phase == .responded &&
         !isArbiterThinking &&
@@ -94,7 +108,9 @@ struct ChatPaletteView: View {
         lastUserMessageId != nil &&
         roundIndex < maxRounds &&
         !isResolveRoundInFlight &&
-        !isArbiterThinking
+        !isArbiterThinking &&
+        phase == .responded &&
+        hasDisagreement
     }
 
     private let stancePalette: [Color] = [.blue, .purple, .orange, .teal, .pink]
@@ -730,6 +746,7 @@ struct ChatPaletteView: View {
                 isResolveRoundInFlight = false
                 advocateResults = []
                 classifierGroups = []
+                mcqDisagreement = nil
             }
 
             do {
@@ -747,6 +764,7 @@ struct ChatPaletteView: View {
                     arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
                     advocateResults = mapAdvocates(from: response.run)
                     classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
+                    mcqDisagreement = response.run.mcqDisagreement
                     isArbiterThinking = false
                     withAnimation(.easeInOut(duration: 0.25)) {
                         phase = .responded
@@ -792,6 +810,7 @@ struct ChatPaletteView: View {
                 arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
                 advocateResults = mapAdvocates(from: response.run)
                 classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
+                mcqDisagreement = response.run.mcqDisagreement
                 isArbiterThinking = false
                 isResolveRoundInFlight = false
             }
@@ -917,6 +936,7 @@ private extension ChatPaletteView {
         arbiterSummaryText = ""
         advocateResults = []
         classifierGroups = []
+        mcqDisagreement = nil
         roundIndex = 0
         isResolveRoundInFlight = false
         isArbiterThinking = false
@@ -942,6 +962,7 @@ private extension ChatPaletteView {
             await MainActor.run {
                 currentConversationId = conversationId
                 classifierGroups = []
+                mcqDisagreement = nil
                 let lastUser = detail.messages.last(where: { $0.role.lowercased() == "user" })
                 lastUserMessageId = lastUser?.id
                 lastSentText = lastUser?.content ?? ""
@@ -959,6 +980,7 @@ private extension ChatPaletteView {
             await MainActor.run {
                 lastUserMessageId = nil
                 classifierGroups = []
+                mcqDisagreement = nil
                 lastSentText = ""
                 arbiterSummaryText = ""
                 withAnimation(.easeInOut(duration: 0.2)) {
