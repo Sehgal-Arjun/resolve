@@ -126,11 +126,22 @@ final class BackendAPIClient {
     }
 
     func getRun(conversationId: String, runId: String) async throws -> RunResult {
-        try await request(
-            path: "/conversations/\(conversationId)/runs/\(runId)",
-            method: "GET",
-            body: Optional<Int>.none
-        )
+        let path = "/conversations/\(conversationId)/runs/\(runId)"
+        let (data, _) = try await requestRaw(path: path, method: "GET", body: Optional<Int>.none)
+
+        if let raw = String(data: data, encoding: .utf8) {
+            print("DEBUG getRun RAW RESPONSE:")
+            print(raw)
+        } else {
+            print("DEBUG getRun RAW RESPONSE: <non-utf8>")
+        }
+
+        do {
+            return try Self.decoder.decode(RunResult.self, from: data)
+        } catch {
+            logDecodingError(error, context: "getRun")
+            throw BackendAPIError.decoding(error)
+        }
     }
 
     // MARK: - Core Request
@@ -182,6 +193,48 @@ final class BackendAPIClient {
         }
     }
 
+    private func requestRaw<Body: Encodable>(path: String, method: String, body: Body?) async throws -> (Data, HTTPURLResponse) {
+        guard let token = loadAccessToken(), !token.isEmpty else {
+            throw BackendAPIError.missingToken
+        }
+
+        let url = config.baseURL.appendingPathComponent(path.trimmingCharacters(in: CharacterSet(charactersIn: "/")))
+
+        var request = URLRequest(url: url)
+        request.httpMethod = method
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        if let body {
+            request.httpBody = try Self.encoder.encode(body)
+        }
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                throw BackendAPIError.network(URLError(.badServerResponse))
+            }
+
+            let printedPath = url.path.isEmpty ? "/" : url.path
+            print("BackendAPI \(method) \(printedPath) -> \(http.statusCode)")
+
+            guard (200...299).contains(http.statusCode) else {
+                let bodyString = String(data: data, encoding: .utf8) ?? ""
+                let truncated = Self.truncate(bodyString, limit: 2000)
+                if !truncated.isEmpty {
+                    print("BackendAPI error body: \(truncated)")
+                }
+                throw BackendAPIError.http(status: http.statusCode, body: truncated)
+            }
+
+            return (data, http)
+        } catch let error as BackendAPIError {
+            throw error
+        } catch {
+            throw BackendAPIError.network(error)
+        }
+    }
+
     // MARK: - Token
 
     private func loadAccessToken() -> String? {
@@ -218,6 +271,31 @@ final class BackendAPIClient {
         guard value.count > limit else { return value }
         let index = value.index(value.startIndex, offsetBy: limit)
         return String(value[..<index]) + "…"
+    }
+
+    private func logDecodingError(_ error: Error, context: String) {
+        guard let decodingError = error as? DecodingError else {
+            print("DEBUG decoding error (\(context)): \(error)")
+            return
+        }
+
+        switch decodingError {
+        case .keyNotFound(let key, let contextInfo):
+            print("DEBUG decoding error (\(context)) keyNotFound: \(key.stringValue) path=\(codingPathString(contextInfo.codingPath)) \(contextInfo.debugDescription)")
+        case .typeMismatch(let type, let contextInfo):
+            print("DEBUG decoding error (\(context)) typeMismatch: \(type) path=\(codingPathString(contextInfo.codingPath)) \(contextInfo.debugDescription)")
+        case .valueNotFound(let type, let contextInfo):
+            print("DEBUG decoding error (\(context)) valueNotFound: \(type) path=\(codingPathString(contextInfo.codingPath)) \(contextInfo.debugDescription)")
+        case .dataCorrupted(let contextInfo):
+            print("DEBUG decoding error (\(context)) dataCorrupted: path=\(codingPathString(contextInfo.codingPath)) \(contextInfo.debugDescription)")
+        @unknown default:
+            print("DEBUG decoding error (\(context)) unknown: \(decodingError)")
+        }
+    }
+
+    private func codingPathString(_ path: [CodingKey]) -> String {
+        guard !path.isEmpty else { return "<root>" }
+        return path.map { $0.stringValue }.joined(separator: ".")
     }
 }
 

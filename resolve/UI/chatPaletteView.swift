@@ -31,6 +31,8 @@ struct ChatPaletteView: View {
     @State private var lastPromptTypeForBackend: String = "general"
     @State private var classifierGroups: [ClassifierGroup] = []
     @State private var mcqDisagreement: Bool? = nil
+    @State private var showHistoricalEmptyState = false
+    @State private var allowPlaceholderAdvocates = true
 
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
@@ -57,7 +59,10 @@ struct ChatPaletteView: View {
     }
 
     private var currentAdvocates: [AdvocateResult] {
-        advocateResults.isEmpty ? AdvocateClient.placeholderResults : advocateResults
+        if !advocateResults.isEmpty {
+            return advocateResults
+        }
+        return allowPlaceholderAdvocates ? AdvocateClient.placeholderResults : []
     }
 
     private var currentPanelWidth: CGFloat {
@@ -369,19 +374,26 @@ struct ChatPaletteView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(advocates) { advocate in
-                Button {
-                    toggleAdvocateSelection(advocate)
-                } label: {
-                    AdvocateCardView(
-                        title: advocate.providerName,
-                        summary: advocate.summary,
-                        isSelected: selectedAdvocateId == advocate.id,
-                        accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
-                        isLoading: isResolveRoundInFlight
-                    )
+            if showHistoricalEmptyState {
+                Text("No saved outputs for this chat.")
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                ForEach(advocates) { advocate in
+                    Button {
+                        toggleAdvocateSelection(advocate)
+                    } label: {
+                        AdvocateCardView(
+                            title: advocate.providerName,
+                            summary: advocate.summary,
+                            isSelected: selectedAdvocateId == advocate.id,
+                            accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
+                            isLoading: isResolveRoundInFlight
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
             }
         }
         .padding(.top, advocateTopPadding)
@@ -557,26 +569,33 @@ struct ChatPaletteView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(advocates) { advocate in
-                        Button {
-                            toggleAdvocateSelection(advocate)
-                        } label: {
-                            AdvocateThesisCardView(
-                                title: advocate.providerName,
-                                summary: advocate.summary,
-                                isSelected: selectedAdvocateId == advocate.id,
-                                accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
-                                isLoading: isResolveRoundInFlight
-                            )
+            if showHistoricalEmptyState {
+                Text("No saved outputs for this chat.")
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(advocates) { advocate in
+                            Button {
+                                toggleAdvocateSelection(advocate)
+                            } label: {
+                                AdvocateThesisCardView(
+                                    title: advocate.providerName,
+                                    summary: advocate.summary,
+                                    isSelected: selectedAdvocateId == advocate.id,
+                                    accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
+                                    isLoading: isResolveRoundInFlight
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.trailing, 2)
                 }
-                .padding(.trailing, 2)
+                .frame(maxHeight: .infinity)
             }
-            .frame(maxHeight: .infinity)
         }
         .padding(.top, advocateTopPadding)
     }
@@ -747,6 +766,8 @@ struct ChatPaletteView: View {
                 advocateResults = []
                 classifierGroups = []
                 mcqDisagreement = nil
+                showHistoricalEmptyState = false
+                allowPlaceholderAdvocates = true
             }
 
             do {
@@ -761,14 +782,7 @@ struct ChatPaletteView: View {
                 await MainActor.run {
                     currentConversationId = conversationId
                     lastUserMessageId = response.message.id
-                    arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
-                    advocateResults = mapAdvocates(from: response.run)
-                    classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
-                    mcqDisagreement = response.run.mcqDisagreement
-                    isArbiterThinking = false
-                    withAnimation(.easeInOut(duration: 0.25)) {
-                        phase = .responded
-                    }
+                    applyRunResult(response.run)
                     focused = true
                 }
             } catch {
@@ -807,12 +821,7 @@ struct ChatPaletteView: View {
             )
 
             await MainActor.run {
-                arbiterSummaryText = response.run.arbiterOutput?.detailedResponse ?? "No response returned."
-                advocateResults = mapAdvocates(from: response.run)
-                classifierGroups = response.run.classifierOutput?.outputJson.groups ?? []
-                mcqDisagreement = response.run.mcqDisagreement
-                isArbiterThinking = false
-                isResolveRoundInFlight = false
+                applyRunResult(response.run)
             }
         } catch {
             await MainActor.run {
@@ -940,10 +949,85 @@ private extension ChatPaletteView {
         roundIndex = 0
         isResolveRoundInFlight = false
         isArbiterThinking = false
+        showHistoricalEmptyState = false
+        allowPlaceholderAdvocates = true
         withAnimation(.easeInOut(duration: 0.2)) {
             phase = .composing
         }
         focused = true
+    }
+
+    @MainActor
+    func applyRunResult(_ run: RunResult) {
+        arbiterSummaryText = arbiterText(from: run.arbiterOutput) ?? "No response returned."
+        advocateResults = mapAdvocates(from: run)
+        classifierGroups = run.classifierOutput?.outputJson.groups ?? []
+        mcqDisagreement = run.mcqDisagreement
+        lastPromptTypeForBackend = run.promptType ?? lastPromptTypeForBackend
+
+        if let promptType = run.promptType?.lowercased() {
+            if promptType.contains("multi") {
+                submittedProblemType = .multipleChoiceMulti
+            } else if promptType.contains("single") {
+                submittedProblemType = .multipleChoiceSingle
+            } else if promptType.contains("mcq") {
+                submittedProblemType = .multipleChoiceSingle
+            } else {
+                submittedProblemType = .generalQuestion
+            }
+        }
+
+        showHistoricalEmptyState = false
+        allowPlaceholderAdvocates = true
+        isArbiterThinking = false
+        isResolveRoundInFlight = false
+        withAnimation(.easeInOut(duration: 0.2)) {
+            phase = .responded
+        }
+    }
+
+    private func arbiterText(from output: RunResult.ArbiterOutput?) -> String? {
+        let detailed = output?.detailedResponse?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !detailed.isEmpty { return detailed }
+
+        let content = output?.content?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !content.isEmpty { return content }
+
+        let summary = output?.summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !summary.isEmpty { return summary }
+
+        let text = output?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !text.isEmpty { return text }
+
+        return nil
+    }
+
+    func isCompletedRunStatus(_ status: String?) -> Bool {
+        guard let status = status?.lowercased() else { return false }
+        return ["complete", "completed", "succeeded", "success", "done"].contains(status)
+    }
+
+    func pickHistoricalRun(from messages: [MessageRow]) -> (id: UUID, status: String?, source: String)? {
+        let sorted = messages.sorted { $0.createdAt > $1.createdAt }
+        for message in sorted {
+            print("ChatPaletteView.pickHistoricalRun: message=\(message)")
+            if let runId = message.latestCompletedRunId {
+                let status = message.latestCompletedRunStatus ?? message.status ?? message.latestRunStatus
+                return (runId, status, "latest_completed_run_id")
+            }
+            guard let runId = message.runId else { continue }
+            let status = message.runStatus ?? message.status ?? message.latestRunStatus
+            if isCompletedRunStatus(status) {
+                return (runId, status, "run_id")
+            }
+            if let fallback = message.latestRunId {
+                let fallbackStatus = message.latestRunStatus ?? message.status
+                if isCompletedRunStatus(fallbackStatus) {
+                    return (fallback, fallbackStatus, "latest_run_id")
+                }
+            }
+        }
+        return nil
     }
 
     func ensureConversationId() async throws -> UUID {
@@ -959,6 +1043,7 @@ private extension ChatPaletteView {
     func loadConversation(conversationId: UUID) async {
         do {
             let detail = try await api.getConversation(id: conversationId)
+            let hasLastUser = detail.messages.contains { $0.role.lowercased() == "user" }
             await MainActor.run {
                 currentConversationId = conversationId
                 classifierGroups = []
@@ -969,11 +1054,53 @@ private extension ChatPaletteView {
                 if let pt = lastUser?.promptType {
                     lastPromptTypeForBackend = pt
                 }
-
                 arbiterSummaryText = ""
+                isArbiterThinking = false
+                isResolveRoundInFlight = false
+                showHistoricalEmptyState = false
+                allowPlaceholderAdvocates = true
+            }
 
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    phase = (lastUser != nil) ? .responded : .composing
+            print("ChatPaletteView.loadConversation: conversationId=\(conversationId)")
+            let selectedRun = pickHistoricalRun(from: detail.messages)
+            if let selectedRun {
+                print("ChatPaletteView.loadConversation: selected run_id=\(selectedRun.id) status=\(selectedRun.status ?? "unknown") source=\(selectedRun.source)")
+                do {
+                    let run = try await api.getRun(conversationId: conversationId, runId: selectedRun.id)
+                    await MainActor.run {
+                        applyRunResult(run)
+                    }
+                    print("ChatPaletteView.loadConversation: historical hydration succeeded")
+                } catch {
+                    await MainActor.run {
+                        arbiterSummaryText = "No saved outputs for this chat."
+                        advocateResults = []
+                        classifierGroups = []
+                        mcqDisagreement = nil
+                        showHistoricalEmptyState = true
+                        allowPlaceholderAdvocates = false
+                        isArbiterThinking = false
+                        isResolveRoundInFlight = false
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            phase = hasLastUser ? .responded : .composing
+                        }
+                    }
+                    print("ChatPaletteView.loadConversation: historical hydration failed: \(error.localizedDescription)")
+                }
+            } else {
+                print("ChatPaletteView.loadConversation: no completed run_id found")
+                await MainActor.run {
+                    arbiterSummaryText = "No saved outputs for this chat."
+                    advocateResults = []
+                    classifierGroups = []
+                    mcqDisagreement = nil
+                    showHistoricalEmptyState = true
+                    allowPlaceholderAdvocates = false
+                    isArbiterThinking = false
+                    isResolveRoundInFlight = false
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        phase = hasLastUser ? .responded : .composing
+                    }
                 }
             }
         } catch {
@@ -983,6 +1110,8 @@ private extension ChatPaletteView {
                 mcqDisagreement = nil
                 lastSentText = ""
                 arbiterSummaryText = ""
+                showHistoricalEmptyState = false
+                allowPlaceholderAdvocates = true
                 withAnimation(.easeInOut(duration: 0.2)) {
                     phase = .composing
                 }
@@ -994,13 +1123,18 @@ private extension ChatPaletteView {
         run.advocateOutputs.map { output in
             let provider = mapProvider(output.provider, advocateKey: output.advocateKey)
 
-            let detailed = output.detailedResponse.trimmingCharacters(in: .whitespacesAndNewlines)
-            let summary = output.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            let content = (output.content ?? output.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let detailed = (output.detailedResponse ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let summary = (output.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+
+            let parsed = content.isEmpty ? nil : AdvocateClient.parseResponse(content)
+            let explanation = !detailed.isEmpty ? detailed : (parsed?.explanation ?? (content.isEmpty ? "No response." : content))
+            let finalSummary = !summary.isEmpty ? summary : (parsed?.summary ?? "Summary could not be parsed")
 
             return AdvocateResult(
                 provider: provider,
-                explanation: detailed.isEmpty ? "No response." : detailed,
-                summary: summary.isEmpty ? "Summary could not be parsed" : summary
+                explanation: explanation,
+                summary: finalSummary
             )
         }
     }
