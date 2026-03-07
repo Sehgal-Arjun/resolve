@@ -18,11 +18,7 @@ struct RootPanelView: View {
 
     var body: some View {
         Group {
-            if authManager.isLoadingAuth {
-                Text("Signing in...")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-            } else if authManager.isAuthenticated, let user = authManager.currentUser {
+            if authManager.isAuthenticated, let user = authManager.currentUser {
                 switch signedInRoute {
                 case .home:
                     AuthenticatedView(
@@ -57,6 +53,10 @@ struct RootPanelView: View {
                         }
                     )
                 }
+            } else if authManager.isLoadingAuth {
+                Text("Signing in...")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
             } else {
                 LandingView()
             }
