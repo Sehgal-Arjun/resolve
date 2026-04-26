@@ -33,6 +33,7 @@ struct ChatPaletteView: View {
     @State private var mcqDisagreement: Bool? = nil
     @State private var showHistoricalEmptyState = false
     @State private var allowPlaceholderAdvocates = true
+    @State private var lastResolveCorrelationId: String?
 
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
@@ -100,8 +101,12 @@ struct ChatPaletteView: View {
         !classifierGroups.isEmpty
     }
 
+    private var resolvesUsed: Int {
+        min(roundIndex, maxRounds)
+    }
+
     private var resolvesRemaining: Int {
-        max(0, maxRounds - roundIndex)
+        max(0, maxRounds - resolvesUsed)
     }
 
     private var resolvesRemainingText: String {
@@ -111,7 +116,7 @@ struct ChatPaletteView: View {
     private var canResolve: Bool {
         currentConversationId != nil &&
         lastUserMessageId != nil &&
-        roundIndex < maxRounds &&
+        resolvesUsed < maxRounds &&
         !isResolveRoundInFlight &&
         !isArbiterThinking &&
         phase == .responded &&
@@ -155,17 +160,29 @@ struct ChatPaletteView: View {
         phase == .loading ? 10 : 0
     }
 
-    private func triggerResolveRound() {
-        guard canResolve else { return }
-        guard !isArbiterThinking else { return }
+    private func triggerResolveRound(source: String) {
+        let correlationId = UUID().uuidString
+        lastResolveCorrelationId = correlationId
+        logResolve(event: "resolve-triggered", source: source, correlationId: correlationId, conversationId: currentConversationId, messageId: lastUserMessageId, roundIndex: roundIndex)
+
+        guard canResolve else {
+            logResolve(event: "resolve-blocked-canResolve", source: source, correlationId: correlationId, conversationId: currentConversationId, messageId: lastUserMessageId, roundIndex: roundIndex)
+            return
+        }
+        guard !isArbiterThinking else {
+            logResolve(event: "resolve-blocked-arbiterThinking", source: source, correlationId: correlationId, conversationId: currentConversationId, messageId: lastUserMessageId, roundIndex: roundIndex)
+            return
+        }
 
         roundIndex += 1
         isArbiterThinking = true
         isResolveRoundInFlight = true
         arbiterSummaryText = ""
 
+        logResolve(event: "resolve-started", source: source, correlationId: correlationId, conversationId: currentConversationId, messageId: lastUserMessageId, roundIndex: roundIndex)
+
         Task {
-            await performResolveRound()
+            await performResolveRound(correlationId: correlationId, source: source)
         }
     }
 
@@ -254,7 +271,7 @@ struct ChatPaletteView: View {
         .onReceive(NotificationCenter.default.publisher(for: resolveRoundNotification)) { _ in
             guard let panelController else { return }
             guard CommandPanelController.shared === panelController else { return }
-            triggerResolveRound()
+            triggerResolveRound(source: "notification")
         }
     }
 
@@ -612,7 +629,7 @@ struct ChatPaletteView: View {
                 .foregroundStyle(.secondary)
 
             Button {
-                triggerResolveRound()
+                triggerResolveRound(source: "button")
             } label: {
                 HStack(spacing: 6) {
                     Text("Resolve")
@@ -798,7 +815,7 @@ struct ChatPaletteView: View {
         }
     }
 
-    private func performResolveRound() async {
+    private func performResolveRound(correlationId: String, source: String) async {
         let (conversationId, messageId, promptType) = await MainActor.run {
             (currentConversationId, lastUserMessageId, lastPromptTypeForBackend)
         }
@@ -808,8 +825,13 @@ struct ChatPaletteView: View {
                 arbiterSummaryText = "Nothing to resolve yet."
                 isArbiterThinking = false
                 isResolveRoundInFlight = false
+                logResolve(event: "resolve-missing-ids", source: source, correlationId: correlationId, conversationId: conversationId, messageId: messageId, roundIndex: roundIndex)
             }
             return
+        }
+
+        await MainActor.run {
+            logResolve(event: "resolve-request", source: source, correlationId: correlationId, conversationId: conversationId, messageId: messageId, roundIndex: roundIndex)
         }
 
         do {
@@ -822,12 +844,14 @@ struct ChatPaletteView: View {
 
             await MainActor.run {
                 applyRunResult(response.run)
+                logResolve(event: "resolve-response", source: source, correlationId: correlationId, conversationId: conversationId, messageId: messageId, roundIndex: roundIndex, runId: response.run.runId)
             }
         } catch {
             await MainActor.run {
                 arbiterSummaryText = "Request failed: \(error.localizedDescription)"
                 isArbiterThinking = false
                 isResolveRoundInFlight = false
+                logResolve(event: "resolve-error: \(error.localizedDescription)", source: source, correlationId: correlationId, conversationId: conversationId, messageId: messageId, roundIndex: roundIndex)
             }
         }
     }
@@ -958,6 +982,30 @@ private extension ChatPaletteView {
     }
 
     @MainActor
+    func logResolveState(context: String, conversationId: UUID, persistedResolveCount: Int?) {
+        print("ChatPaletteView.resolveState(\(context)): conversationId=\(conversationId) persistedResolveCount=\(persistedResolveCount ?? -1) resolvesUsed=\(resolvesUsed) remaining=\(resolvesRemaining) canResolve=\(canResolve)")
+    }
+
+    private static let resolveLogFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private func logResolve(
+        event: String,
+        source: String,
+        correlationId: String,
+        conversationId: UUID?,
+        messageId: UUID?,
+        roundIndex: Int,
+        runId: UUID? = nil
+    ) {
+        let timestamp = Self.resolveLogFormatter.string(from: Date())
+        print("ResolveTrace \(timestamp) event=\(event) source=\(source) correlationId=\(correlationId) conversationId=\(conversationId?.uuidString ?? "nil") messageId=\(messageId?.uuidString ?? "nil") roundIndex=\(roundIndex) runId=\(runId?.uuidString ?? "nil")")
+    }
+
+    @MainActor
     func applyRunResult(_ run: RunResult) {
         arbiterSummaryText = arbiterText(from: run.arbiterOutput) ?? "No response returned."
         advocateResults = mapAdvocates(from: run)
@@ -1044,10 +1092,12 @@ private extension ChatPaletteView {
         do {
             let detail = try await api.getConversation(id: conversationId)
             let hasLastUser = detail.messages.contains { $0.role.lowercased() == "user" }
+            let persistedResolveCount = detail.conversation.resolveCount
             await MainActor.run {
                 currentConversationId = conversationId
                 classifierGroups = []
                 mcqDisagreement = nil
+                roundIndex = min(persistedResolveCount, maxRounds)
                 let lastUser = detail.messages.last(where: { $0.role.lowercased() == "user" })
                 lastUserMessageId = lastUser?.id
                 lastSentText = lastUser?.content ?? ""
@@ -1062,6 +1112,9 @@ private extension ChatPaletteView {
             }
 
             print("ChatPaletteView.loadConversation: conversationId=\(conversationId)")
+            await MainActor.run {
+                logResolveState(context: "historical-load", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+            }
             let selectedRun = pickHistoricalRun(from: detail.messages)
             if let selectedRun {
                 print("ChatPaletteView.loadConversation: selected run_id=\(selectedRun.id) status=\(selectedRun.status ?? "unknown") source=\(selectedRun.source)")
@@ -1069,6 +1122,7 @@ private extension ChatPaletteView {
                     let run = try await api.getRun(conversationId: conversationId, runId: selectedRun.id)
                     await MainActor.run {
                         applyRunResult(run)
+                        logResolveState(context: "historical-hydrated", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
                     }
                     print("ChatPaletteView.loadConversation: historical hydration succeeded")
                 } catch {
@@ -1101,6 +1155,7 @@ private extension ChatPaletteView {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         phase = hasLastUser ? .responded : .composing
                     }
+                    logResolveState(context: "historical-no-run", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
                 }
             }
         } catch {
