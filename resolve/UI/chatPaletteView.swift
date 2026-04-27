@@ -1,5 +1,15 @@
 import SwiftUI
 
+fileprivate struct RoundSnapshot {
+    let runId: UUID
+    let arbiterSummaryText: String
+    let advocateResults: [AdvocateResult]
+    let classifierGroups: [ClassifierGroup]
+    let mcqDisagreement: Bool?
+    let submittedProblemType: ProblemType
+    let lastPromptTypeForBackend: String
+}
+
 struct ChatPaletteView: View {
     let initialConversationId: UUID?
     let onBack: (() -> Void)?
@@ -34,6 +44,8 @@ struct ChatPaletteView: View {
     @State private var showHistoricalEmptyState = false
     @State private var allowPlaceholderAdvocates = true
     @State private var lastResolveCorrelationId: String?
+    @State private var roundSnapshots: [RoundSnapshot] = []
+    @State private var viewedRoundIndex: Int = 0
 
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
@@ -120,7 +132,20 @@ struct ChatPaletteView: View {
         !isResolveRoundInFlight &&
         !isArbiterThinking &&
         phase == .responded &&
-        hasDisagreement
+        hasDisagreement &&
+        isViewingLatestRound
+    }
+
+    private var isViewingLatestRound: Bool {
+        roundSnapshots.isEmpty || viewedRoundIndex == roundSnapshots.count - 1
+    }
+
+    private var canGoBackRound: Bool {
+        !isResolveRoundInFlight && !isArbiterThinking && viewedRoundIndex > 0
+    }
+
+    private var canGoForwardRound: Bool {
+        !isResolveRoundInFlight && !isArbiterThinking && viewedRoundIndex < roundSnapshots.count - 1
     }
 
     private let stancePalette: [Color] = [.blue, .purple, .orange, .teal, .pink]
@@ -294,6 +319,11 @@ struct ChatPaletteView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
+        .overlay(alignment: .topTrailing) {
+            roundNavigationView
+                .padding(.top, 12)
+                .padding(.trailing, 12)
+        }
     }
 
     private var multipleChoiceArea: some View {
@@ -617,6 +647,61 @@ struct ChatPaletteView: View {
         .padding(.top, advocateTopPadding)
     }
 
+    private var displayedRoundCount: Int {
+        max(roundSnapshots.count, 1)
+    }
+
+    private var displayedRoundNumber: Int {
+        roundSnapshots.isEmpty ? 1 : viewedRoundIndex + 1
+    }
+
+    private var roundNavigationView: some View {
+        HStack(spacing: 6) {
+            Button {
+                goToPreviousRound()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .opacity(canGoBackRound ? 1.0 : 0.35)
+            .disabled(!canGoBackRound)
+
+            Text("\(displayedRoundNumber)/\(displayedRoundCount)")
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 26)
+
+            Button {
+                goToNextRound()
+            } label: {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .opacity(canGoForwardRound ? 1.0 : 0.35)
+            .disabled(!canGoForwardRound)
+        }
+    }
+
     private var headerRow: some View {
         HStack(spacing: 8) {
             Text("Arbiter’s Summary")
@@ -785,6 +870,8 @@ struct ChatPaletteView: View {
                 mcqDisagreement = nil
                 showHistoricalEmptyState = false
                 allowPlaceholderAdvocates = true
+                roundSnapshots = []
+                viewedRoundIndex = 0
             }
 
             do {
@@ -975,6 +1062,8 @@ private extension ChatPaletteView {
         isArbiterThinking = false
         showHistoricalEmptyState = false
         allowPlaceholderAdvocates = true
+        roundSnapshots = []
+        viewedRoundIndex = 0
         withAnimation(.easeInOut(duration: 0.2)) {
             phase = .composing
         }
@@ -1029,9 +1118,46 @@ private extension ChatPaletteView {
         allowPlaceholderAdvocates = true
         isArbiterThinking = false
         isResolveRoundInFlight = false
+
+        let snapshot = RoundSnapshot(
+            runId: run.runId,
+            arbiterSummaryText: arbiterSummaryText,
+            advocateResults: advocateResults,
+            classifierGroups: classifierGroups,
+            mcqDisagreement: mcqDisagreement,
+            submittedProblemType: submittedProblemType,
+            lastPromptTypeForBackend: lastPromptTypeForBackend
+        )
+        roundSnapshots.append(snapshot)
+        viewedRoundIndex = roundSnapshots.count - 1
+
         withAnimation(.easeInOut(duration: 0.2)) {
             phase = .responded
         }
+    }
+
+    @MainActor
+    func goToPreviousRound() {
+        guard viewedRoundIndex > 0 else { return }
+        viewedRoundIndex -= 1
+        applySnapshot(roundSnapshots[viewedRoundIndex])
+    }
+
+    @MainActor
+    func goToNextRound() {
+        guard viewedRoundIndex < roundSnapshots.count - 1 else { return }
+        viewedRoundIndex += 1
+        applySnapshot(roundSnapshots[viewedRoundIndex])
+    }
+
+    @MainActor
+    private func applySnapshot(_ snapshot: RoundSnapshot) {
+        arbiterSummaryText = snapshot.arbiterSummaryText
+        advocateResults = snapshot.advocateResults
+        classifierGroups = snapshot.classifierGroups
+        mcqDisagreement = snapshot.mcqDisagreement
+        submittedProblemType = snapshot.submittedProblemType
+        lastPromptTypeForBackend = snapshot.lastPromptTypeForBackend
     }
 
     private func arbiterText(from output: RunResult.ArbiterOutput?) -> String? {
@@ -1109,6 +1235,8 @@ private extension ChatPaletteView {
                 isResolveRoundInFlight = false
                 showHistoricalEmptyState = false
                 allowPlaceholderAdvocates = true
+                roundSnapshots = []
+                viewedRoundIndex = 0
             }
 
             print("ChatPaletteView.loadConversation: conversationId=\(conversationId)")
@@ -1167,6 +1295,8 @@ private extension ChatPaletteView {
                 arbiterSummaryText = ""
                 showHistoricalEmptyState = false
                 allowPlaceholderAdvocates = true
+                roundSnapshots = []
+                viewedRoundIndex = 0
                 withAnimation(.easeInOut(duration: 0.2)) {
                     phase = .composing
                 }
