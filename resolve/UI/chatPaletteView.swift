@@ -444,7 +444,7 @@ struct ChatPaletteView: View {
                         } else {
                             ScrollView {
                                 arbiterSummaryView(text: arbiterSummaryText)
-                                    .font(.system(size: 15, weight: .regular))
+                                    .font(.system(size: settings.arbiterTextSize.pointSize, weight: .regular, design: settings.arbiterFont.design))
                                     .foregroundStyle(.primary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.bottom, 8)
@@ -647,7 +647,7 @@ struct ChatPaletteView: View {
                         } else {
                             ScrollView {
                                 arbiterSummaryView(text: arbiterSummaryText)
-                                    .font(.system(size: 15, weight: .regular))
+                                    .font(.system(size: settings.arbiterTextSize.pointSize, weight: .regular, design: settings.arbiterFont.design))
                                     .foregroundStyle(.primary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.bottom, 8)
@@ -1026,10 +1026,21 @@ struct ChatPaletteView: View {
             case .normal(let value):
                 output = output + Text(value)
             case .bold(let value):
-                output = output + Text(value).bold()
+                output = output + emphasisText(value)
             }
         }
         return output
+    }
+
+    private func emphasisText(_ value: String) -> Text {
+        switch settings.boldEmphasisStyle {
+        case .bold:
+            return Text(value).bold()
+        case .boldColored:
+            return Text(value).bold().foregroundColor(settings.resolvedAccentColor)
+        case .underline:
+            return Text(value).underline()
+        }
     }
 
     private enum ArbiterBoldSegment {

@@ -266,14 +266,74 @@ enum PanelSize: String, CaseIterable, Identifiable {
 }
 
 enum PanelAnchor: String, CaseIterable, Identifiable {
-    case center, lastPosition
+    // Order matters: `allCases` drives the order of the segmented picker, so
+    // `lastPosition` first puts it on the left.
+    case lastPosition, center
 
     var id: String { rawValue }
 
     var displayName: String {
         switch self {
-        case .center: return "Center"
         case .lastPosition: return "Last position"
+        case .center: return "Center"
+        }
+    }
+}
+
+enum ArbiterFont: String, CaseIterable, Identifiable {
+    case system, rounded, serif
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .rounded: return "Rounded"
+        case .serif: return "Serif"
+        }
+    }
+
+    var design: Font.Design {
+        switch self {
+        case .system: return .default
+        case .rounded: return .rounded
+        case .serif: return .serif
+        }
+    }
+}
+
+enum ArbiterTextSize: String, CaseIterable, Identifiable {
+    case small, medium, large
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .small: return "S"
+        case .medium: return "M"
+        case .large: return "L"
+        }
+    }
+
+    var pointSize: CGFloat {
+        switch self {
+        case .small: return 13
+        case .medium: return 15
+        case .large: return 18
+        }
+    }
+}
+
+enum BoldEmphasisStyle: String, CaseIterable, Identifiable {
+    case bold, boldColored, underline
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .bold: return "Bold"
+        case .boldColored: return "Bold + Color"
+        case .underline: return "Underline"
         }
     }
 }
@@ -334,6 +394,9 @@ final class UserSettingsStore: ObservableObject {
         static let ambientStanceGlow = "settings.ambientStanceGlow"
         static let advocateCardDensity = "settings.advocateCardDensity"
         static let showKeyboardHintChips = "settings.showKeyboardHintChips"
+        static let arbiterFont = "settings.arbiterFont"
+        static let arbiterTextSize = "settings.arbiterTextSize"
+        static let boldEmphasisStyle = "settings.boldEmphasisStyle"
         static let panelSize = "settings.panelSize"
         static let panelAnchor = "settings.panelAnchor"
         static let lastPanelFrame = "settings.lastPanelFrame"
@@ -444,6 +507,24 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    @Published var arbiterFont: ArbiterFont {
+        didSet {
+            defaults.set(arbiterFont.rawValue, forKey: Keys.arbiterFont)
+        }
+    }
+
+    @Published var arbiterTextSize: ArbiterTextSize {
+        didSet {
+            defaults.set(arbiterTextSize.rawValue, forKey: Keys.arbiterTextSize)
+        }
+    }
+
+    @Published var boldEmphasisStyle: BoldEmphasisStyle {
+        didSet {
+            defaults.set(boldEmphasisStyle.rawValue, forKey: Keys.boldEmphasisStyle)
+        }
+    }
+
     @Published var panelSize: PanelSize {
         didSet {
             defaults.set(panelSize.rawValue, forKey: Keys.panelSize)
@@ -501,10 +582,21 @@ final class UserSettingsStore: ObservableObject {
 
         showKeyboardHintChips = (defaults.object(forKey: Keys.showKeyboardHintChips) as? Bool) ?? true
 
+        let storedFont = defaults.string(forKey: Keys.arbiterFont)
+        arbiterFont = storedFont.flatMap(ArbiterFont.init(rawValue:)) ?? .system
+
+        let storedTextSize = defaults.string(forKey: Keys.arbiterTextSize)
+        arbiterTextSize = storedTextSize.flatMap(ArbiterTextSize.init(rawValue:)) ?? .medium
+
+        let storedEmphasis = defaults.string(forKey: Keys.boldEmphasisStyle)
+        boldEmphasisStyle = storedEmphasis.flatMap(BoldEmphasisStyle.init(rawValue:)) ?? .bold
+
         let storedSize = defaults.string(forKey: Keys.panelSize)
         panelSize = storedSize.flatMap(PanelSize.init(rawValue:)) ?? .comfortable
 
-        // Migrate the old "topCenter" / "bottomCenter" raw values to the unified "center".
+        // Migrate the old "topCenter" / "bottomCenter" raw values to the unified "center"
+        // (users who picked those wanted a centered placement). New installs default to
+        // `.lastPosition` so the panel stays where the user last had it.
         let rawAnchor = defaults.string(forKey: Keys.panelAnchor)
         let normalizedAnchor: String? = {
             switch rawAnchor {
@@ -512,7 +604,7 @@ final class UserSettingsStore: ObservableObject {
             default: return rawAnchor
             }
         }()
-        panelAnchor = normalizedAnchor.flatMap(PanelAnchor.init(rawValue:)) ?? .center
+        panelAnchor = normalizedAnchor.flatMap(PanelAnchor.init(rawValue:)) ?? .lastPosition
 
         applyAppearance()
     }
@@ -533,8 +625,11 @@ final class UserSettingsStore: ObservableObject {
         ambientStanceGlow = .off
         advocateCardDensity = .cozy
         showKeyboardHintChips = true
+        arbiterFont = .system
+        arbiterTextSize = .medium
+        boldEmphasisStyle = .bold
         panelSize = .comfortable
-        panelAnchor = .center
+        panelAnchor = .lastPosition
     }
 
     /// Multiplies a base panel dimension by the user-selected size scale.

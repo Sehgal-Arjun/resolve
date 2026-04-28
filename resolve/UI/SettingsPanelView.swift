@@ -32,6 +32,7 @@ struct SettingsPanelView: View {
                         layoutSection
                         defaultsSection
                         resolveSection
+                        polishSection
                         footerActions
                     }
                     .padding(.bottom, 8)
@@ -384,6 +385,56 @@ struct SettingsPanelView: View {
             .pickerStyle(.segmented)
             .labelsHidden()
             .frame(width: 220)
+        }
+    }
+
+    // MARK: - Polish
+
+    private var polishSection: some View {
+        SettingsSection(title: "Polish") {
+            VStack(spacing: 14) {
+                SettingsCustomRow(
+                    title: "Arbiter summary font",
+                    subtitle: "Typeface used for the arbiter's response."
+                ) {
+                    Picker("", selection: $settings.arbiterFont) {
+                        ForEach(ArbiterFont.allCases) { font in
+                            Text(font.displayName).tag(font)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 240)
+                }
+
+                SettingsCustomRow(
+                    title: "Arbiter summary size",
+                    subtitle: "Size of the arbiter's response text."
+                ) {
+                    Picker("", selection: $settings.arbiterTextSize) {
+                        ForEach(ArbiterTextSize.allCases) { size in
+                            Text(size.displayName).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 160)
+                }
+
+                SettingsCustomRow(
+                    title: "Bold emphasis style",
+                    subtitle: "How **emphasized** segments render in the summary."
+                ) {
+                    Picker("", selection: $settings.boldEmphasisStyle) {
+                        ForEach(BoldEmphasisStyle.allCases) { style in
+                            Text(style.displayName).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 280)
+                }
+            }
         }
     }
 
