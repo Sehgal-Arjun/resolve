@@ -169,6 +169,111 @@ enum CornerRadiusStyle: String, CaseIterable, Identifiable {
     }
 }
 
+enum StancePalette: String, CaseIterable, Identifiable {
+    case vibrant, pastel, highContrast
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .vibrant: return "Vibrant"
+        case .pastel: return "Pastel"
+        case .highContrast: return "Contrast"
+        }
+    }
+
+    /// Five colors used to label classifier groups in stance order.
+    var colors: [Color] {
+        switch self {
+        case .vibrant:
+            return [.blue, .purple, .orange, .teal, .pink]
+        case .pastel:
+            // Saturation-pumped pastels — distinct hues that still read soft on
+            // both light and dark material.
+            return [
+                Color(red: 0.42, green: 0.68, blue: 1.00), // sky blue
+                Color(red: 0.74, green: 0.55, blue: 1.00), // lavender
+                Color(red: 1.00, green: 0.66, blue: 0.40), // peach
+                Color(red: 0.40, green: 0.92, blue: 0.78), // mint
+                Color(red: 1.00, green: 0.55, blue: 0.78)  // rose
+            ]
+        case .highContrast:
+            return [
+                Color(red: 1.00, green: 0.20, blue: 0.20),
+                Color(red: 1.00, green: 0.85, blue: 0.10),
+                Color(red: 0.10, green: 0.85, blue: 0.30),
+                Color(red: 0.10, green: 0.55, blue: 1.00),
+                Color(red: 1.00, green: 0.20, blue: 0.85)
+            ]
+        }
+    }
+}
+
+enum AmbientGlow: String, CaseIterable, Identifiable {
+    case off, subtle, pronounced
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .off: return "Off"
+        case .subtle: return "Subtle"
+        case .pronounced: return "Pronounced"
+        }
+    }
+
+    /// Stroke width for the colored border that hugs the outer panel.
+    var borderWidth: CGFloat {
+        switch self {
+        case .off: return 0
+        case .subtle: return 1.5
+        case .pronounced: return 3.0
+        }
+    }
+
+    var opacity: Double {
+        switch self {
+        case .off: return 0
+        case .subtle: return 0.55
+        case .pronounced: return 0.90
+        }
+    }
+
+    var isOn: Bool { self != .off }
+}
+
+enum AdvocateCardDensity: String, CaseIterable, Identifiable {
+    case compact, cozy, detailed
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .compact: return "Compact"
+        case .cozy: return "Cozy"
+        case .detailed: return "Detailed"
+        }
+    }
+
+    /// `lineLimit` for the summary on the standard advocate card.
+    var summaryLineLimit: Int {
+        switch self {
+        case .compact: return 1
+        case .cozy: return 2
+        case .detailed: return 4
+        }
+    }
+
+    /// `lineLimit` for the thesis card used in general-question mode.
+    var thesisLineLimit: Int {
+        switch self {
+        case .compact: return 3
+        case .cozy: return 5
+        case .detailed: return 8
+        }
+    }
+}
+
 final class UserSettingsStore: ObservableObject {
     static let shared = UserSettingsStore()
 
@@ -189,6 +294,10 @@ final class UserSettingsStore: ObservableObject {
         static let customAccentHex = "settings.customAccentHex"
         static let cornerRadiusStyle = "settings.cornerRadiusStyle"
         static let reducedMotion = "settings.reducedMotion"
+        static let stancePalette = "settings.stancePalette"
+        static let ambientStanceGlow = "settings.ambientStanceGlow"
+        static let advocateCardDensity = "settings.advocateCardDensity"
+        static let showKeyboardHintChips = "settings.showKeyboardHintChips"
     }
 
     static let defaultCustomAccentHex = "#3B82F6"
@@ -272,6 +381,30 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    @Published var stancePalette: StancePalette {
+        didSet {
+            defaults.set(stancePalette.rawValue, forKey: Keys.stancePalette)
+        }
+    }
+
+    @Published var ambientStanceGlow: AmbientGlow {
+        didSet {
+            defaults.set(ambientStanceGlow.rawValue, forKey: Keys.ambientStanceGlow)
+        }
+    }
+
+    @Published var advocateCardDensity: AdvocateCardDensity {
+        didSet {
+            defaults.set(advocateCardDensity.rawValue, forKey: Keys.advocateCardDensity)
+        }
+    }
+
+    @Published var showKeyboardHintChips: Bool {
+        didSet {
+            defaults.set(showKeyboardHintChips, forKey: Keys.showKeyboardHintChips)
+        }
+    }
+
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -306,6 +439,17 @@ final class UserSettingsStore: ObservableObject {
 
         reducedMotion = (defaults.object(forKey: Keys.reducedMotion) as? Bool) ?? false
 
+        let storedStance = defaults.string(forKey: Keys.stancePalette)
+        stancePalette = storedStance.flatMap(StancePalette.init(rawValue:)) ?? .vibrant
+
+        let storedGlow = defaults.string(forKey: Keys.ambientStanceGlow)
+        ambientStanceGlow = storedGlow.flatMap(AmbientGlow.init(rawValue:)) ?? .off
+
+        let storedDensity = defaults.string(forKey: Keys.advocateCardDensity)
+        advocateCardDensity = storedDensity.flatMap(AdvocateCardDensity.init(rawValue:)) ?? .cozy
+
+        showKeyboardHintChips = (defaults.object(forKey: Keys.showKeyboardHintChips) as? Bool) ?? true
+
         applyAppearance()
     }
 
@@ -321,6 +465,10 @@ final class UserSettingsStore: ObservableObject {
         customAccentHex = Self.defaultCustomAccentHex
         cornerRadiusStyle = .standard
         reducedMotion = false
+        stancePalette = .vibrant
+        ambientStanceGlow = .off
+        advocateCardDensity = .cozy
+        showKeyboardHintChips = true
     }
 
     /// Resolved accent color, taking the custom hex into account.

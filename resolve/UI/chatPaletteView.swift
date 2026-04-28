@@ -154,7 +154,9 @@ struct ChatPaletteView: View {
         !isResolveRoundInFlight && !isArbiterThinking && viewedRoundIndex < roundSnapshots.count - 1
     }
 
-    private let stancePalette: [Color] = [.blue, .purple, .orange, .teal, .pink]
+    private var stancePalette: [Color] {
+        settings.stancePalette.colors
+    }
 
     private func stanceColor(for provider: AdvocateProvider) -> Color? {
         let key: String
@@ -166,12 +168,37 @@ struct ChatPaletteView: View {
         case .mistral: key = "mistral"
         }
 
+        let palette = stancePalette
         for (i, g) in classifierGroups.enumerated() {
             if g.members.contains(where: { $0.lowercased() == key }) {
-                return stancePalette[i % stancePalette.count]
+                return palette[i % palette.count]
             }
         }
         return nil
+    }
+
+    /// Color of the largest classifier group, used for the ambient panel glow.
+    private var dominantStanceColor: Color? {
+        guard shouldShowStanceColors, !classifierGroups.isEmpty else { return nil }
+        guard let largest = classifierGroups.enumerated().max(by: { $0.element.members.count < $1.element.members.count }) else { return nil }
+        let palette = stancePalette
+        return palette[largest.offset % palette.count]
+    }
+
+    /// Border color for the outer panel. Ambient glow, when on and a stance is
+    /// known, overrides the default white outline with the dominant stance hue.
+    private var panelBorderColor: Color {
+        if settings.ambientStanceGlow.isOn, let glow = dominantStanceColor {
+            return glow.opacity(settings.ambientStanceGlow.opacity)
+        }
+        return Color.white.opacity(0.10)
+    }
+
+    private var panelBorderWidth: CGFloat {
+        if settings.ambientStanceGlow.isOn, dominantStanceColor != nil {
+            return settings.ambientStanceGlow.borderWidth
+        }
+        return 1
     }
 
     private func promptTypeFor(problemType: ProblemType) -> String {
@@ -266,9 +293,9 @@ struct ChatPaletteView: View {
                 .fill(settings.panelTranslucency.material)
                 .overlay(
                     RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10))
+                        .strokeBorder(panelBorderColor, lineWidth: panelBorderWidth)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
 
             VStack(spacing: 12) {
                 if phase != .composing {
@@ -458,7 +485,8 @@ struct ChatPaletteView: View {
                             isLoading: isResolveRoundInFlight,
                             cornerRadius: settings.cornerRadius(10),
                             selectionTint: settings.resolvedAccentColor,
-                            selectionTintOpacity: selectedAdvocateBorderOpacity
+                            selectionTintOpacity: selectedAdvocateBorderOpacity,
+                            summaryLineLimit: settings.advocateCardDensity.summaryLineLimit
                         )
                     }
                     .buttonStyle(.plain)
@@ -662,7 +690,8 @@ struct ChatPaletteView: View {
                                     isLoading: isResolveRoundInFlight,
                                     cornerRadius: settings.cornerRadius(10),
                                     selectionTint: settings.resolvedAccentColor,
-                                    selectionTintOpacity: selectedAdvocateBorderOpacity
+                                    selectionTintOpacity: selectedAdvocateBorderOpacity,
+                                    summaryLineLimit: settings.advocateCardDensity.thesisLineLimit
                                 )
                             }
                             .buttonStyle(.plain)
@@ -747,7 +776,7 @@ struct ChatPaletteView: View {
                 HStack(spacing: 6) {
                     Text("Resolve")
 
-                    if canResolve && !isArbiterThinking {
+                    if canResolve && !isArbiterThinking && settings.showKeyboardHintChips {
                         ResolveKeycap("⌘ ⇧ R")
                     }
                 }
@@ -1386,6 +1415,7 @@ private extension ChatPaletteView {
         let cornerRadius: CGFloat
         let selectionTint: Color
         let selectionTintOpacity: Double
+        let summaryLineLimit: Int
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1406,8 +1436,9 @@ private extension ChatPaletteView {
                 Text(summary)
                     .font(.system(size: 13, weight: .regular))
                     .foregroundStyle(.primary)
-                    .lineLimit(2)
+                    .lineLimit(summaryLineLimit)
                     .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(.vertical, 8)
             .padding(.horizontal, 10)
@@ -1443,6 +1474,7 @@ private extension ChatPaletteView {
         let cornerRadius: CGFloat
         let selectionTint: Color
         let selectionTintOpacity: Double
+        let summaryLineLimit: Int
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1463,7 +1495,7 @@ private extension ChatPaletteView {
                 Text(summary)
                     .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
-                    .lineLimit(5)
+                    .lineLimit(summaryLineLimit)
                     .truncationMode(.tail)
                     .fixedSize(horizontal: false, vertical: true)
             }

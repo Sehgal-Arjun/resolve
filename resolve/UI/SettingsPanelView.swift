@@ -167,6 +167,58 @@ struct SettingsPanelView: View {
                     subtitle: "Disables panel resize and transition animations.",
                     isOn: $settings.reducedMotion
                 )
+
+                Divider()
+                    .overlay(Color.white.opacity(0.10))
+                    .padding(.vertical, 2)
+
+                SettingsCustomRow(
+                    title: "Stance palette",
+                    subtitle: "Colors used to label classifier groups on advocate cards."
+                ) {
+                    Picker("", selection: $settings.stancePalette) {
+                        ForEach(StancePalette.allCases) { palette in
+                            Text(palette.displayName).tag(palette)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 320)
+                }
+
+                SettingsCustomRow(
+                    title: "Ambient stance glow",
+                    subtitle: "A soft colored halo around the panel matching the dominant stance."
+                ) {
+                    Picker("", selection: $settings.ambientStanceGlow) {
+                        ForEach(AmbientGlow.allCases) { level in
+                            Text(level.displayName).tag(level)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 240)
+                }
+
+                SettingsCustomRow(
+                    title: "Advocate card density",
+                    subtitle: "How much of each advocate's summary you see at a glance."
+                ) {
+                    Picker("", selection: $settings.advocateCardDensity) {
+                        ForEach(AdvocateCardDensity.allCases) { density in
+                            Text(density.displayName).tag(density)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 240)
+                }
+
+                SettingsToggleRow(
+                    title: "Keyboard hint chips",
+                    subtitle: "Show inline shortcut chips (e.g. ⌘ ⇧ R) next to buttons.",
+                    isOn: $settings.showKeyboardHintChips
+                )
             }
         }
     }

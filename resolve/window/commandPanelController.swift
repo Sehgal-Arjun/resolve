@@ -158,7 +158,9 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         panel.isMovableByWindowBackground = true
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.hasShadow = true
+        // Disable the macOS window shadow — it's biased downward and clashes
+        // with the SwiftUI ambient stance glow which surrounds the whole panel.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
