@@ -62,6 +62,13 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         panel?.close()
     }
 
+    /// Forces macOS to recompute the panel's window shadow from the current
+    /// pixel mask. Needed when the SwiftUI corner radius changes — without this,
+    /// the system keeps drawing the previous shadow outline.
+    func invalidateShadow() {
+        panel?.invalidateShadow()
+    }
+
     func setHeight(_ height: CGFloat, animated: Bool) {
         guard let panel else { return }
 

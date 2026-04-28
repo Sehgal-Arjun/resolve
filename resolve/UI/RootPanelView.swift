@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootPanelView: View {
     @ObservedObject var authManager: AuthManager
+    @ObservedObject private var settings = UserSettingsStore.shared
 
     private enum SignedInRoute {
         case home
@@ -62,6 +63,13 @@ struct RootPanelView: View {
             }
         }
         .environmentObject(authManager)
+        .tint(settings.resolvedAccentColor)
+        .onChange(of: settings.cornerRadiusStyle) { _, _ in
+            CommandPanelManager.shared.invalidateAllShadows()
+        }
+        .onChange(of: settings.panelTranslucency) { _, _ in
+            CommandPanelManager.shared.invalidateAllShadows()
+        }
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route

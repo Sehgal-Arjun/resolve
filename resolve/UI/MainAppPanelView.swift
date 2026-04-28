@@ -12,7 +12,7 @@ struct MainAppPanelView: View {
         .onAppear {
             // Ensure the panel matches the chat palette immediately; ChatPaletteView will resize
             // further as its internal phase changes.
-            CommandPanelController.shared.setSize(width: baseWidth, height: baseHeight, animated: true)
+            CommandPanelController.shared.setSize(width: baseWidth, height: baseHeight, animated: !UserSettingsStore.shared.reducedMotion)
         }
     }
 }

@@ -53,7 +53,7 @@ struct LandingView: View {
         }
         .frame(width: cardWidth, height: cardHeight)
         .onAppear {
-            CommandPanelController.shared.setSize(width: cardWidth, height: cardHeight, animated: true)
+            CommandPanelController.shared.setSize(width: cardWidth, height: cardHeight, animated: !UserSettingsStore.shared.reducedMotion)
         }
     }
 }

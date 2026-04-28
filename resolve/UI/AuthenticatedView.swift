@@ -135,7 +135,7 @@ struct AuthenticatedView: View {
         }
         .frame(width: panelWidth, height: panelHeight)
         .onAppear {
-            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: true)
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !UserSettingsStore.shared.reducedMotion)
         }
     }
 

@@ -43,4 +43,10 @@ final class CommandPanelManager {
     func removeInstance(_ controller: CommandPanelController) {
         instances.removeAll { $0 === controller }
     }
+
+    func invalidateAllShadows() {
+        for controller in allControllers {
+            controller.invalidateShadow()
+        }
+    }
 }

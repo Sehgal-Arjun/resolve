@@ -187,6 +187,14 @@ struct ChatPaletteView: View {
         phase == .loading ? 0.25 : 1.0
     }
 
+    private var sendButtonAccentOpacity: Double {
+        settings.accentColorChoice == .mono ? 0.14 : 0.22
+    }
+
+    private var selectedAdvocateBorderOpacity: Double {
+        settings.accentColorChoice == .mono ? 0.35 : 0.55
+    }
+
     private var inputContentOffset: CGFloat {
         phase == .loading ? 10 : 0
     }
@@ -240,11 +248,11 @@ struct ChatPaletteView: View {
                 }
                 .padding(12)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                         .fill(Color.white.opacity(0.07))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -254,10 +262,10 @@ struct ChatPaletteView: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10))
                 )
                 .shadow(radius: 16)
@@ -271,8 +279,9 @@ struct ChatPaletteView: View {
                 inputBar
             }
             .padding(18)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous))
         }
+        .tint(settings.resolvedAccentColor)
         .environment(\.resolveChatPhase, phaseString)
         .frame(
             width: currentPanelWidth,
@@ -298,10 +307,10 @@ struct ChatPaletteView: View {
             }
             let height = newPhase == .composing ? baseHeight : expandedHeight
             let width = newPhase == .composing ? baseWidth : currentPanelWidth
-            CommandPanelController.shared.setSize(width: width, height: height, animated: true)
+            CommandPanelController.shared.setSize(width: width, height: height, animated: !settings.reducedMotion)
         }
         .onChange(of: selectedAdvocateId) { _ in
-            CommandPanelController.shared.setWidth(currentPanelWidth, animated: true)
+            CommandPanelController.shared.setWidth(currentPanelWidth, animated: !settings.reducedMotion)
         }
         .onReceive(NotificationCenter.default.publisher(for: resolveRoundNotification)) { _ in
             guard let panelController else { return }
@@ -322,11 +331,11 @@ struct ChatPaletteView: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(14), style: .continuous)
                 .fill(Color.white.opacity(0.05))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(14), style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
         .overlay(alignment: .topTrailing) {
@@ -446,7 +455,10 @@ struct ChatPaletteView: View {
                             summary: advocate.summary,
                             isSelected: selectedAdvocateId == advocate.id,
                             accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
-                            isLoading: isResolveRoundInFlight
+                            isLoading: isResolveRoundInFlight,
+                            cornerRadius: settings.cornerRadius(10),
+                            selectionTint: settings.resolvedAccentColor,
+                            selectionTintOpacity: selectedAdvocateBorderOpacity
                         )
                     }
                     .buttonStyle(.plain)
@@ -531,11 +543,11 @@ struct ChatPaletteView: View {
                 }
                 .buttonStyle(.plain)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                         .fill(Color.white.opacity(0.08))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
             }
@@ -554,11 +566,11 @@ struct ChatPaletteView: View {
         .padding(12)
         .frame(maxHeight: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                 .fill(Color.white.opacity(0.06))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                 .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
         )
     }
@@ -643,7 +655,10 @@ struct ChatPaletteView: View {
                                     summary: advocate.summary,
                                     isSelected: selectedAdvocateId == advocate.id,
                                     accentColor: shouldShowStanceColors ? (stanceColor(for: advocate.provider) ?? providerAccentColors[advocate.provider]) : nil,
-                                    isLoading: isResolveRoundInFlight
+                                    isLoading: isResolveRoundInFlight,
+                                    cornerRadius: settings.cornerRadius(10),
+                                    selectionTint: settings.resolvedAccentColor,
+                                    selectionTintOpacity: selectedAdvocateBorderOpacity
                                 )
                             }
                             .buttonStyle(.plain)
@@ -676,11 +691,11 @@ struct ChatPaletteView: View {
             }
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(6), style: .continuous)
                     .fill(Color.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(6), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             .opacity(canGoBackRound ? 1.0 : 0.35)
@@ -700,11 +715,11 @@ struct ChatPaletteView: View {
             }
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(6), style: .continuous)
                     .fill(Color.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(6), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             .opacity(canGoForwardRound ? 1.0 : 0.35)
@@ -739,16 +754,24 @@ struct ChatPaletteView: View {
             .padding(.vertical, 6)
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
+                RoundedRectangle(cornerRadius: settings.cornerRadius(9), style: .continuous)
+                    .fill(canResolve ? settings.resolvedAccentColor.opacity(resolveButtonAccentOpacity) : Color.white.opacity(0.08))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(9), style: .continuous)
+                    .strokeBorder(canResolve ? settings.resolvedAccentColor.opacity(resolveButtonBorderOpacity) : Color.white.opacity(0.10), lineWidth: 1)
             )
             .opacity(canResolve ? 1.0 : 0.45)
             .disabled(!canResolve)
         }
+    }
+
+    private var resolveButtonAccentOpacity: Double {
+        settings.accentColorChoice == .mono ? 0.10 : 0.20
+    }
+
+    private var resolveButtonBorderOpacity: Double {
+        settings.accentColorChoice == .mono ? 0.10 : 0.40
     }
 
     private var inputBar: some View {
@@ -761,7 +784,7 @@ struct ChatPaletteView: View {
                 }
                 .buttonStyle(.plain)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .fill(Color.white.opacity(0.08))
                 )
             }
@@ -773,7 +796,7 @@ struct ChatPaletteView: View {
             }
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                     .fill(Color.white.opacity(0.08))
             )
 
@@ -791,11 +814,11 @@ struct ChatPaletteView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                     .fill(Color.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
 
@@ -822,11 +845,11 @@ struct ChatPaletteView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .frame(width: 28, height: 28)
                     .background(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(9), style: .continuous)
                             .fill(Color.white.opacity(0.08))
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(9), style: .continuous)
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                     )
             }
@@ -841,8 +864,8 @@ struct ChatPaletteView: View {
             }
             .buttonStyle(.plain)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(canSend ? 0.14 : 0.06))
+                RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
+                    .fill(settings.resolvedAccentColor.opacity(canSend ? sendButtonAccentOpacity : 0.06))
             )
             .opacity(canSend ? 1.0 : 0.55)
             .disabled(!canSend)
@@ -851,7 +874,7 @@ struct ChatPaletteView: View {
         }
         .opacity(inputContentOpacity)
         .offset(y: inputContentOffset)
-        .animation(.easeInOut(duration: 0.2), value: phase)
+        .animation(settings.animation(.easeInOut(duration: 0.2)), value: phase)
     }
 
     private func send() {
@@ -862,7 +885,7 @@ struct ChatPaletteView: View {
         submittedProblemType = problemType
         lastPromptTypeForBackend = promptTypeFor(problemType: problemType)
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
             text = ""
             phase = .loading
         }
@@ -905,7 +928,7 @@ struct ChatPaletteView: View {
                 await MainActor.run {
                     arbiterSummaryText = "Request failed: \(error.localizedDescription)"
                     isArbiterThinking = false
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    withAnimation(settings.animation(.easeInOut(duration: 0.25))) {
                         phase = .responded
                     }
                     focused = true
@@ -1079,7 +1102,7 @@ private extension ChatPaletteView {
         roundSnapshots = []
         viewedRoundIndex = 0
         problemType = settings.defaultProblemType
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
             phase = .composing
         }
         focused = true
@@ -1146,7 +1169,7 @@ private extension ChatPaletteView {
         roundSnapshots.append(snapshot)
         viewedRoundIndex = roundSnapshots.count - 1
 
-        withAnimation(.easeInOut(duration: 0.2)) {
+        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
             phase = .responded
         }
     }
@@ -1278,7 +1301,7 @@ private extension ChatPaletteView {
                         allowPlaceholderAdvocates = false
                         isArbiterThinking = false
                         isResolveRoundInFlight = false
-                        withAnimation(.easeInOut(duration: 0.2)) {
+                        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
                             phase = hasLastUser ? .responded : .composing
                         }
                     }
@@ -1295,7 +1318,7 @@ private extension ChatPaletteView {
                     allowPlaceholderAdvocates = false
                     isArbiterThinking = false
                     isResolveRoundInFlight = false
-                    withAnimation(.easeInOut(duration: 0.2)) {
+                    withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
                         phase = hasLastUser ? .responded : .composing
                     }
                     logResolveState(context: "historical-no-run", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
@@ -1312,7 +1335,7 @@ private extension ChatPaletteView {
                 allowPlaceholderAdvocates = true
                 roundSnapshots = []
                 viewedRoundIndex = 0
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
                     phase = .composing
                 }
             }
@@ -1357,6 +1380,9 @@ private extension ChatPaletteView {
         let isSelected: Bool
         let accentColor: Color?
         let isLoading: Bool
+        let cornerRadius: CGFloat
+        let selectionTint: Color
+        let selectionTintOpacity: Double
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1384,12 +1410,15 @@ private extension ChatPaletteView {
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.white.opacity(0.07))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? selectionTint.opacity(selectionTintOpacity) : Color.white.opacity(0.10),
+                        lineWidth: 1
+                    )
             )
             .overlay(alignment: .trailing) {
                 if isLoading {
@@ -1408,6 +1437,9 @@ private extension ChatPaletteView {
         let isSelected: Bool
         let accentColor: Color?
         let isLoading: Bool
+        let cornerRadius: CGFloat
+        let selectionTint: Color
+        let selectionTintOpacity: Double
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1436,12 +1468,15 @@ private extension ChatPaletteView {
             .padding(.horizontal, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.white.opacity(0.07))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color.white.opacity(isSelected ? 0.35 : 0.10), lineWidth: 1)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? selectionTint.opacity(selectionTintOpacity) : Color.white.opacity(0.10),
+                        lineWidth: 1
+                    )
             )
             .overlay(alignment: .trailing) {
                 if isLoading {
@@ -1461,6 +1496,7 @@ private extension ChatPaletteView {
 
 private struct InlineCloseButton: View {
     @Environment(\.resolveCloseAction) private var closeAction
+    @ObservedObject private var settings = UserSettingsStore.shared
     @State private var isHovering = false
 
     var body: some View {
@@ -1474,11 +1510,11 @@ private struct InlineCloseButton: View {
                 }
                 .buttonStyle(.plain)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .fill(Color.white.opacity(isHovering ? 0.10 : 0.06))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
                 .onHover { hovering in
@@ -1493,6 +1529,8 @@ private struct InlineCloseButton: View {
 private struct ResolveKeycap: View {
     let keys: String
 
+    @ObservedObject private var settings = UserSettingsStore.shared
+
     init(_ keys: String) {
         self.keys = keys
     }
@@ -1504,11 +1542,11 @@ private struct ResolveKeycap: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                     .fill(Color.white.opacity(0.06))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
     }
