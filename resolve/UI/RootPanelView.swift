@@ -79,6 +79,9 @@ struct RootPanelView: View {
         .onChange(of: settings.panelAnchor) { _, _ in
             CommandPanelManager.shared.reapplyAnchorToAll()
         }
+        .onChange(of: settings.hideOnFocusLoss) { _, newValue in
+            CommandPanelManager.shared.applyHideOnFocusLossToAll(newValue)
+        }
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route

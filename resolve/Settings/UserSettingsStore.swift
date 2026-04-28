@@ -397,6 +397,7 @@ final class UserSettingsStore: ObservableObject {
         static let arbiterFont = "settings.arbiterFont"
         static let arbiterTextSize = "settings.arbiterTextSize"
         static let boldEmphasisStyle = "settings.boldEmphasisStyle"
+        static let hideOnFocusLoss = "settings.hideOnFocusLoss"
         static let panelSize = "settings.panelSize"
         static let panelAnchor = "settings.panelAnchor"
         static let lastPanelFrame = "settings.lastPanelFrame"
@@ -525,6 +526,12 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    @Published var hideOnFocusLoss: Bool {
+        didSet {
+            defaults.set(hideOnFocusLoss, forKey: Keys.hideOnFocusLoss)
+        }
+    }
+
     @Published var panelSize: PanelSize {
         didSet {
             defaults.set(panelSize.rawValue, forKey: Keys.panelSize)
@@ -591,6 +598,8 @@ final class UserSettingsStore: ObservableObject {
         let storedEmphasis = defaults.string(forKey: Keys.boldEmphasisStyle)
         boldEmphasisStyle = storedEmphasis.flatMap(BoldEmphasisStyle.init(rawValue:)) ?? .bold
 
+        hideOnFocusLoss = (defaults.object(forKey: Keys.hideOnFocusLoss) as? Bool) ?? false
+
         let storedSize = defaults.string(forKey: Keys.panelSize)
         panelSize = storedSize.flatMap(PanelSize.init(rawValue:)) ?? .comfortable
 
@@ -628,6 +637,7 @@ final class UserSettingsStore: ObservableObject {
         arbiterFont = .system
         arbiterTextSize = .medium
         boldEmphasisStyle = .bold
+        hideOnFocusLoss = false
         panelSize = .comfortable
         panelAnchor = .lastPosition
     }

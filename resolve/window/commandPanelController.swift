@@ -99,6 +99,13 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         panel?.invalidateShadow()
     }
 
+    func applyHideOnFocusLoss(_ enabled: Bool) {
+        // No-op now: we hide explicitly via CommandPanelManager's deactivation
+        // observer instead of relying on AppKit's hidesOnDeactivate, which
+        // leaves `panel.isVisible` returning true after auto-hide.
+        _ = enabled
+    }
+
     func setHeight(_ height: CGFloat, animated: Bool) {
         guard let panel else { return }
 
@@ -194,6 +201,10 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Don't use AppKit's built-in hidesOnDeactivate — it leaves
+        // `panel.isVisible` reporting true after the auto-hide, which breaks
+        // `smartToggle`. CommandPanelManager hides explicitly on
+        // NSApplicationDidResignActive when the user setting is on.
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self

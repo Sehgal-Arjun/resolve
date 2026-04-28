@@ -1,11 +1,19 @@
 import SwiftUI
 import AppKit
+import KeyboardShortcuts
 
 struct SettingsPanelView: View {
     let onBack: () -> Void
 
     @ObservedObject private var settings = UserSettingsStore.shared
     @ObservedObject private var authManager = AuthManager.shared
+
+    private enum Route {
+        case main
+        case editShortcuts
+    }
+
+    @State private var route: Route = .main
 
     private var panelWidth: CGFloat { settings.scaled(620) }
     private var panelHeight: CGFloat { settings.scaled(620) }
@@ -27,13 +35,12 @@ struct SettingsPanelView: View {
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
-                        accountSection
-                        appearanceSection
-                        layoutSection
-                        defaultsSection
-                        resolveSection
-                        polishSection
-                        footerActions
+                        switch route {
+                        case .main:
+                            mainContent
+                        case .editShortcuts:
+                            editShortcutsContent
+                        }
                     }
                     .padding(.bottom, 8)
                 }
@@ -52,11 +59,28 @@ struct SettingsPanelView: View {
         }
     }
 
+    @ViewBuilder
+    private var mainContent: some View {
+        accountSection
+        appearanceSection
+        layoutSection
+        defaultsSection
+        resolveSection
+        polishSection
+        behaviorSection
+        footerActions
+    }
+
+    @ViewBuilder
+    private var editShortcutsContent: some View {
+        editShortcutsSection
+    }
+
     // MARK: - Header
 
     private var header: some View {
         HStack(spacing: 12) {
-            Button(action: onBack) {
+            Button(action: handleBack) {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
@@ -72,11 +96,27 @@ struct SettingsPanelView: View {
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
 
-            Text("Settings")
+            Text(headerTitle)
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.primary)
 
             Spacer(minLength: 0)
+        }
+    }
+
+    private var headerTitle: String {
+        switch route {
+        case .main: return "Settings"
+        case .editShortcuts: return "Edit Shortcuts"
+        }
+    }
+
+    private func handleBack() {
+        switch route {
+        case .main:
+            onBack()
+        case .editShortcuts:
+            route = .main
         }
     }
 
@@ -438,10 +478,81 @@ struct SettingsPanelView: View {
         }
     }
 
+    // MARK: - Behavior
+
+    private var behaviorSection: some View {
+        SettingsSection(title: "Behavior") {
+            VStack(spacing: 14) {
+                SettingsToggleRow(
+                    title: "Hide on focus loss",
+                    subtitle: "Automatically hide the panel when Resolve is no longer the active app.",
+                    isOn: $settings.hideOnFocusLoss
+                )
+
+                SettingsCustomRow(
+                    title: "Keyboard shortcuts",
+                    subtitle: "Customize the global hotkeys Resolve responds to."
+                ) {
+                    Button {
+                        route = .editShortcuts
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Edit shortcuts")
+                                .font(.system(size: 12, weight: .semibold))
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - Edit Shortcuts (sub-page)
+
+    private var editShortcutsSection: some View {
+        SettingsSection(title: "Keyboard Shortcuts") {
+            VStack(spacing: 14) {
+                ForEach(resolveCustomizableShortcuts) { spec in
+                    SettingsCustomRow(title: spec.title, subtitle: spec.subtitle) {
+                        KeyboardShortcuts.Recorder(for: spec.name)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - About / version
+
+    private var appVersionString: String {
+        let info = Bundle.main.infoDictionary
+        let short = (info?["CFBundleShortVersionString"] as? String) ?? "1.0"
+        let build = (info?["CFBundleVersion"] as? String) ?? "0"
+        return "\(short) (\(build))"
+    }
+
     // MARK: - Footer
 
     private var footerActions: some View {
         HStack(spacing: 12) {
+            Text("Resolve · \(appVersionString)")
+                .font(.system(size: 11, weight: .regular, design: .monospaced))
+                .foregroundStyle(.tertiary)
+
+            Spacer(minLength: 0)
+
             Button {
                 settings.resetToDefaults()
             } label: {
@@ -459,8 +570,6 @@ struct SettingsPanelView: View {
                 RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
-
-            Spacer(minLength: 0)
 
             Button {
                 authManager.signOut()
