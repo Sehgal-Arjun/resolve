@@ -47,6 +47,7 @@ struct ChatPaletteView: View {
     @State private var roundSnapshots: [RoundSnapshot] = []
     @State private var viewedRoundIndex: Int = 0
 
+    @ObservedObject private var settings = UserSettingsStore.shared
     @FocusState private var focused: Bool
     @Environment(\.resolvePanelController) private var panelController
 
@@ -61,7 +62,10 @@ struct ChatPaletteView: View {
     private let multiSelectAdvocateWidth: CGFloat = 170
     private let generalQuestionAdvocateWidth: CGFloat = 230
     private let advocateTopPadding: CGFloat = 44
-    private let maxRounds: Int = 2
+
+    private var maxRounds: Int {
+        settings.maxResolveRounds
+    }
 
     private var canSend: Bool {
         phase != .loading && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -75,7 +79,8 @@ struct ChatPaletteView: View {
         if !advocateResults.isEmpty {
             return advocateResults
         }
-        return allowPlaceholderAdvocates ? AdvocateClient.placeholderResults : []
+        guard allowPlaceholderAdvocates else { return [] }
+        return AdvocateClient.placeholderResults.filter { settings.enabledAdvocates.contains($0.provider) }
     }
 
     private var currentPanelWidth: CGFloat {
@@ -107,6 +112,7 @@ struct ChatPaletteView: View {
     }
 
     private var shouldShowStanceColors: Bool {
+        settings.showStanceColors &&
         phase == .responded &&
         !isArbiterThinking &&
         !isResolveRoundInFlight &&
@@ -275,6 +281,10 @@ struct ChatPaletteView: View {
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 focused = true
+            }
+
+            if initialConversationId == nil && phase == .composing {
+                problemType = settings.defaultProblemType
             }
 
             if let initialConversationId {
@@ -880,7 +890,9 @@ struct ChatPaletteView: View {
                     conversationId: conversationId,
                     content: trimmed,
                     promptType: lastPromptTypeForBackend,
-                    summaryFormat: nil
+                    summaryFormat: nil,
+                    enabledAdvocates: settings.enabledAdvocateBackendKeys,
+                    arbiterStyle: settings.arbiterStyle.rawValue
                 )
 
                 await MainActor.run {
@@ -903,8 +915,8 @@ struct ChatPaletteView: View {
     }
 
     private func performResolveRound(correlationId: String, source: String) async {
-        let (conversationId, messageId, promptType) = await MainActor.run {
-            (currentConversationId, lastUserMessageId, lastPromptTypeForBackend)
+        let (conversationId, messageId, promptType, advocateKeys, arbiterStyleValue) = await MainActor.run {
+            (currentConversationId, lastUserMessageId, lastPromptTypeForBackend, settings.enabledAdvocateBackendKeys, settings.arbiterStyle.rawValue)
         }
 
         guard let conversationId, let messageId else {
@@ -926,7 +938,9 @@ struct ChatPaletteView: View {
                 conversationId: conversationId,
                 messageId: messageId,
                 promptType: promptType,
-                summaryFormat: nil
+                summaryFormat: nil,
+                enabledAdvocates: advocateKeys,
+                arbiterStyle: arbiterStyleValue
             )
 
             await MainActor.run {
@@ -1064,6 +1078,7 @@ private extension ChatPaletteView {
         allowPlaceholderAdvocates = true
         roundSnapshots = []
         viewedRoundIndex = 0
+        problemType = settings.defaultProblemType
         withAnimation(.easeInOut(duration: 0.2)) {
             phase = .composing
         }
