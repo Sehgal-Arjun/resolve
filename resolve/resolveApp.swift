@@ -25,6 +25,21 @@ struct resolveApp: App {
                     CommandPanelController.shared.closeInstance()
                 }
                 .keyboardShortcut("w", modifiers: [.command])
+
+                Button("Settings") {
+                    // Settings only opens when the original (primary) instance is
+                    // the focused/active panel. Pressing ⌘, on a secondary
+                    // instance is a no-op — users use ⌘⇧O to focus the original
+                    // first.
+                    guard CommandPanelController.shared === CommandPanelController.primary else { return }
+                    NotificationCenter.default.post(name: openSettingsNotification, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: [.command])
+
+                Button("Focus Original Instance") {
+                    CommandPanelController.primary.show()
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
             }
         }
     }

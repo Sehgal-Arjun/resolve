@@ -15,7 +15,12 @@ struct RootPanelView: View {
     @State private var signedInRoute: SignedInRoute = .home
     @State private var selectedConversationId: UUID?
     @State private var diveInToken: NSObjectProtocol?
+    @State private var openSettingsToken: NSObjectProtocol?
     @Environment(\.resolvePanelController) private var panelController
+
+    private var isPrimaryPanel: Bool {
+        panelController?.isPrimary ?? true
+    }
 
     var body: some View {
         Group {
@@ -24,6 +29,7 @@ struct RootPanelView: View {
                 case .home:
                     AuthenticatedView(
                         user: user,
+                        isPrimary: isPrimaryPanel,
                         onDiveIn: { signedInRoute = .main },
                         onPastChats: { signedInRoute = .pastChats },
                         onHowItWorks: { signedInRoute = .howItWorks },
@@ -89,12 +95,28 @@ struct RootPanelView: View {
                     signedInRoute = .main
                 }
             }
+            openSettingsToken = NotificationCenter.default.addObserver(
+                forName: openSettingsNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // Settings only lives on the original instance. The command
+                // already filters this, but guard here too in case the
+                // notification is posted from anywhere else.
+                guard panelController?.isPrimary == true else { return }
+                if case .signedIn = authManager.state {
+                    signedInRoute = .settings
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await authManager.refreshAuthState() }
         }
         .onDisappear {
             if let token = diveInToken {
+                NotificationCenter.default.removeObserver(token)
+            }
+            if let token = openSettingsToken {
                 NotificationCenter.default.removeObserver(token)
             }
         }

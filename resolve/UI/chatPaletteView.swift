@@ -338,11 +338,6 @@ struct ChatPaletteView: View {
             RoundedRectangle(cornerRadius: settings.cornerRadius(14), style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
-        .overlay(alignment: .topTrailing) {
-            roundNavigationView
-                .padding(.top, 12)
-                .padding(.trailing, 12)
-        }
     }
 
     private var multipleChoiceArea: some View {
@@ -433,6 +428,11 @@ struct ChatPaletteView: View {
 
     private var rightColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                roundNavigationView
+            }
+
             HStack {
                 Spacer()
                 Text(problemTypeShortLabel)
@@ -465,7 +465,6 @@ struct ChatPaletteView: View {
                 }
             }
         }
-        .padding(.top, advocateTopPadding)
     }
 
     private var advocateColumnWidth: CGFloat {
@@ -631,6 +630,11 @@ struct ChatPaletteView: View {
 
     private var generalQuestionRightColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                roundNavigationView
+            }
+
             HStack {
                 Spacer()
                 Text(problemTypeShortLabel)
@@ -669,7 +673,6 @@ struct ChatPaletteView: View {
                 .frame(maxHeight: .infinity)
             }
         }
-        .padding(.top, advocateTopPadding)
     }
 
     private var displayedRoundCount: Int {

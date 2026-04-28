@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AuthenticatedView: View {
     let user: AuthManager.ClerkUser
+    let isPrimary: Bool
     let onDiveIn: () -> Void
     let onPastChats: () -> Void
     let onHowItWorks: () -> Void
@@ -18,7 +19,7 @@ struct AuthenticatedView: View {
     }
 
     private let panelWidth: CGFloat = 520
-    private let panelHeight: CGFloat = 380
+    private let panelHeight: CGFloat = 410
     private let cardWidth: CGFloat = 520
     private let cardCornerRadius: CGFloat = 16
 
@@ -70,11 +71,13 @@ struct AuthenticatedView: View {
                         onPastChats()
                     }
 
-                    Text("·")
-                        .foregroundStyle(.tertiary)
+                    if isPrimary {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("Settings") {
-                        onSettings()
+                        ResolveInlineLinkButton("Settings") {
+                            onSettings()
+                        }
                     }
 
                     Text("·")
@@ -94,12 +97,18 @@ struct AuthenticatedView: View {
 
                 keyboardShortcuts
 
-                Text("Models active: ChatGPT · Claude · Gemini · DeepSeek · Mistral")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.tertiary)
+                if !isPrimary {
+                    Text("Settings only lives on the original instance. Press ⌘ ⇧ O to focus it.")
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
+
+                Spacer(minLength: 0)
             }
             .padding(22)
-            .frame(width: cardWidth)
+            .frame(width: cardWidth, height: panelHeight, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
 
             if canCloseInstance, let closeAction {
@@ -153,7 +162,11 @@ struct AuthenticatedView: View {
                 if canCloseInstance {
                     ShortcutRow(label: "Close instance", keys: "⌘ W")
                 }
-                ShortcutRow(label: "Settings", keys: "⌘ ,")
+                if isPrimary {
+                    ShortcutRow(label: "Settings", keys: "⌘ ,")
+                } else {
+                    ShortcutRow(label: "Focus original", keys: "⌘ ⇧ O")
+                }
             }
         }
         .padding(.top, 4)
