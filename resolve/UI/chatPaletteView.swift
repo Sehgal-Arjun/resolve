@@ -53,14 +53,14 @@ struct ChatPaletteView: View {
 
     private let api = BackendAPIClient()
 
-    private let baseHeight: CGFloat = 140
-    private let expandedHeight: CGFloat = 460
-    private let baseWidth: CGFloat = 620
-    private let expandedWidth: CGFloat = 760
-    private let drawerWidth: CGFloat = 260
-    private let singleSelectAdvocateWidth: CGFloat = 150
-    private let multiSelectAdvocateWidth: CGFloat = 170
-    private let generalQuestionAdvocateWidth: CGFloat = 230
+    private var baseHeight: CGFloat { settings.scaled(140) }
+    private var expandedHeight: CGFloat { settings.scaled(460) }
+    private var baseWidth: CGFloat { settings.scaled(620) }
+    private var expandedWidth: CGFloat { settings.scaled(760) }
+    private var drawerWidth: CGFloat { settings.scaled(260) }
+    private var singleSelectAdvocateWidth: CGFloat { settings.scaled(150) }
+    private var multiSelectAdvocateWidth: CGFloat { settings.scaled(170) }
+    private var generalQuestionAdvocateWidth: CGFloat { settings.scaled(230) }
     private let advocateTopPadding: CGFloat = 44
 
     private var maxRounds: Int {
@@ -338,6 +338,12 @@ struct ChatPaletteView: View {
         }
         .onChange(of: selectedAdvocateId) { _ in
             CommandPanelController.shared.setWidth(currentPanelWidth, animated: !settings.reducedMotion)
+        }
+        .onChange(of: settings.panelSize) { _ in
+            // Live-resize the panel when the user changes the size preset.
+            let height = phase == .composing ? baseHeight : expandedHeight
+            let width = phase == .composing ? baseWidth : currentPanelWidth
+            CommandPanelController.shared.setSize(width: width, height: height, animated: !settings.reducedMotion)
         }
         .onReceive(NotificationCenter.default.publisher(for: resolveRoundNotification)) { _ in
             guard let panelController else { return }

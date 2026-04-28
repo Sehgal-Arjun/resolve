@@ -49,4 +49,10 @@ final class CommandPanelManager {
             controller.invalidateShadow()
         }
     }
+
+    func reapplyAnchorToAll() {
+        for controller in allControllers {
+            controller.reapplyAnchor()
+        }
+    }
 }

@@ -76,6 +76,9 @@ struct RootPanelView: View {
         .onChange(of: settings.panelTranslucency) { _, _ in
             CommandPanelManager.shared.invalidateAllShadows()
         }
+        .onChange(of: settings.panelAnchor) { _, _ in
+            CommandPanelManager.shared.reapplyAnchorToAll()
+        }
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route

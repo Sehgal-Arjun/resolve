@@ -18,26 +18,28 @@ struct AuthenticatedView: View {
         return trimmed
     }
 
-    private let panelWidth: CGFloat = 520
-    private let panelHeight: CGFloat = 410
-    private let cardWidth: CGFloat = 520
+    private var panelWidth: CGFloat { settings.scaled(520) }
+    private var panelHeight: CGFloat { settings.scaled(410) }
+    private var cardWidth: CGFloat { settings.scaled(520) }
     private let cardCornerRadius: CGFloat = 16
 
     @Environment(\.resolveCanCloseInstance) private var canCloseInstance
     @Environment(\.resolveCloseAction) private var closeAction
+
+    @ObservedObject private var settings = UserSettingsStore.shared
 
     @State private var isDiveHovering = false
     @State private var isCloseHovering = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
                 .frame(width: cardWidth)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -144,7 +146,10 @@ struct AuthenticatedView: View {
         }
         .frame(width: panelWidth, height: panelHeight)
         .onAppear {
-            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !UserSettingsStore.shared.reducedMotion)
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
+        }
+        .onChange(of: settings.panelSize) { _ in
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
         }
     }
 

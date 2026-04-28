@@ -7,9 +7,9 @@ struct SettingsPanelView: View {
     @ObservedObject private var settings = UserSettingsStore.shared
     @ObservedObject private var authManager = AuthManager.shared
 
-    private let panelWidth: CGFloat = 620
-    private let panelHeight: CGFloat = 620
-    private let cardWidth: CGFloat = 620
+    private var panelWidth: CGFloat { settings.scaled(620) }
+    private var panelHeight: CGFloat { settings.scaled(620) }
+    private var cardWidth: CGFloat { settings.scaled(620) }
 
     var body: some View {
         ZStack {
@@ -29,6 +29,7 @@ struct SettingsPanelView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         accountSection
                         appearanceSection
+                        layoutSection
                         defaultsSection
                         resolveSection
                         footerActions
@@ -43,6 +44,9 @@ struct SettingsPanelView: View {
         .frame(width: panelWidth, height: panelHeight)
         .tint(settings.resolvedAccentColor)
         .onAppear {
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
+        }
+        .onChange(of: settings.panelSize) { _ in
             CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
         }
     }
@@ -219,6 +223,42 @@ struct SettingsPanelView: View {
                     subtitle: "Show inline shortcut chips (e.g. ⌘ ⇧ R) next to buttons.",
                     isOn: $settings.showKeyboardHintChips
                 )
+            }
+        }
+    }
+
+    // MARK: - Layout
+
+    private var layoutSection: some View {
+        SettingsSection(title: "Layout") {
+            VStack(spacing: 14) {
+                SettingsCustomRow(
+                    title: "Panel size",
+                    subtitle: "Scales every panel's width and height together."
+                ) {
+                    Picker("", selection: $settings.panelSize) {
+                        ForEach(PanelSize.allCases) { size in
+                            Text(size.displayName).tag(size)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 280)
+                }
+
+                SettingsCustomRow(
+                    title: "Default panel anchor",
+                    subtitle: "Where the floating panel snaps when you summon it."
+                ) {
+                    Picker("", selection: $settings.panelAnchor) {
+                        ForEach(PanelAnchor.allCases) { anchor in
+                            Text(anchor.displayName).tag(anchor)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 320)
+                }
             }
         }
     }

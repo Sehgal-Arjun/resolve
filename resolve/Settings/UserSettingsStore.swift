@@ -242,6 +242,42 @@ enum AmbientGlow: String, CaseIterable, Identifiable {
     var isOn: Bool { self != .off }
 }
 
+enum PanelSize: String, CaseIterable, Identifiable {
+    case compact, comfortable, spacious
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .compact: return "Compact"
+        case .comfortable: return "Comfortable"
+        case .spacious: return "Spacious"
+        }
+    }
+
+    /// Multiplier applied to every panel's width and height.
+    var scale: CGFloat {
+        switch self {
+        case .compact: return 0.85
+        case .comfortable: return 1.0
+        case .spacious: return 1.15
+        }
+    }
+}
+
+enum PanelAnchor: String, CaseIterable, Identifiable {
+    case center, lastPosition
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .center: return "Center"
+        case .lastPosition: return "Last position"
+        }
+    }
+}
+
 enum AdvocateCardDensity: String, CaseIterable, Identifiable {
     case compact, cozy, detailed
 
@@ -298,6 +334,9 @@ final class UserSettingsStore: ObservableObject {
         static let ambientStanceGlow = "settings.ambientStanceGlow"
         static let advocateCardDensity = "settings.advocateCardDensity"
         static let showKeyboardHintChips = "settings.showKeyboardHintChips"
+        static let panelSize = "settings.panelSize"
+        static let panelAnchor = "settings.panelAnchor"
+        static let lastPanelFrame = "settings.lastPanelFrame"
     }
 
     static let defaultCustomAccentHex = "#3B82F6"
@@ -405,6 +444,18 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    @Published var panelSize: PanelSize {
+        didSet {
+            defaults.set(panelSize.rawValue, forKey: Keys.panelSize)
+        }
+    }
+
+    @Published var panelAnchor: PanelAnchor {
+        didSet {
+            defaults.set(panelAnchor.rawValue, forKey: Keys.panelAnchor)
+        }
+    }
+
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -450,6 +501,19 @@ final class UserSettingsStore: ObservableObject {
 
         showKeyboardHintChips = (defaults.object(forKey: Keys.showKeyboardHintChips) as? Bool) ?? true
 
+        let storedSize = defaults.string(forKey: Keys.panelSize)
+        panelSize = storedSize.flatMap(PanelSize.init(rawValue:)) ?? .comfortable
+
+        // Migrate the old "topCenter" / "bottomCenter" raw values to the unified "center".
+        let rawAnchor = defaults.string(forKey: Keys.panelAnchor)
+        let normalizedAnchor: String? = {
+            switch rawAnchor {
+            case "topCenter", "bottomCenter": return "center"
+            default: return rawAnchor
+            }
+        }()
+        panelAnchor = normalizedAnchor.flatMap(PanelAnchor.init(rawValue:)) ?? .center
+
         applyAppearance()
     }
 
@@ -469,6 +533,25 @@ final class UserSettingsStore: ObservableObject {
         ambientStanceGlow = .off
         advocateCardDensity = .cozy
         showKeyboardHintChips = true
+        panelSize = .comfortable
+        panelAnchor = .center
+    }
+
+    /// Multiplies a base panel dimension by the user-selected size scale.
+    func scaled(_ base: CGFloat) -> CGFloat {
+        base * panelSize.scale
+    }
+
+    /// Persisted last frame for the primary panel — used when `panelAnchor`
+    /// is `.lastPosition`. Returns nil if nothing's been persisted yet.
+    var persistedPrimaryPanelFrame: NSRect? {
+        guard let raw = defaults.string(forKey: Keys.lastPanelFrame), !raw.isEmpty else { return nil }
+        let rect = NSRectFromString(raw)
+        return rect == .zero ? nil : rect
+    }
+
+    func setPersistedPrimaryPanelFrame(_ frame: NSRect) {
+        defaults.set(NSStringFromRect(frame), forKey: Keys.lastPanelFrame)
     }
 
     /// Resolved accent color, taking the custom hex into account.

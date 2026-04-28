@@ -4,24 +4,26 @@ struct PastChatsView: View {
     let onBack: () -> Void
     let onOpenConversation: (UUID) -> Void
 
-    private let cardWidth: CGFloat = 520
+    private var cardWidth: CGFloat { settings.scaled(520) }
     private let cardCornerRadius: CGFloat = 16
 
     @State private var conversations: [Conversation] = []
     @State private var isLoading = false
     @State private var lastError: String?
 
+    @ObservedObject private var settings = UserSettingsStore.shared
+
     private let api = BackendAPIClient()
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
                 .frame(width: cardWidth)
 
             VStack(alignment: .leading, spacing: 16) {
