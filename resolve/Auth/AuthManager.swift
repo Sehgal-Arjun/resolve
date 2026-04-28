@@ -1,8 +1,11 @@
 import Foundation
-import ClerkKit
+import AppKit
+import AuthenticationServices
+import CryptoKit
+import Security
 
 @MainActor
-final class AuthManager: ObservableObject {
+final class AuthManager: NSObject, ObservableObject {
     struct ClerkUser: Equatable {
         let id: String
         let name: String
@@ -12,353 +15,369 @@ final class AuthManager: ObservableObject {
     enum AuthState: Equatable {
         case signedOut
         case signingIn
-        case signUpNeedsDetails(SignUpRequirements)
-        case signUpNeedsPhoneCode(SignUpRequirements)
         case signedIn(ClerkUser)
-    }
-
-    struct SignUpRequirements: Equatable {
-        let missingFields: [String]
-        let requiredFields: [String]
-        let phoneNumber: String?
     }
 
     static let shared = AuthManager()
 
     @Published private(set) var state: AuthState = .signedOut
     @Published private(set) var currentUser: ClerkUser?
+    @Published private(set) var isAuthenticated: Bool = false
+    @Published private(set) var isLoadingAuth: Bool = false
+    @Published private(set) var userId: String?
 
-    private var isClerkConfigured = false
+    private let clientID = "vTNy0mSOUipeN01x"
+    private let authorizeURL = URL(string: "https://oriented-antelope-57.clerk.accounts.dev/oauth/authorize")!
+    private let tokenURL = URL(string: "https://oriented-antelope-57.clerk.accounts.dev/oauth/token")!
+    private let userInfoURL = URL(string: "https://oriented-antelope-57.clerk.accounts.dev/oauth/userinfo")!
+    private let redirectURI = "resolve://auth-callback"
+    private let callbackScheme = "resolve"
 
-    private init() {}
+    private var authSession: ASWebAuthenticationSession?
+    private var currentState: String?
+    private var currentVerifier: String?
+    private var isRefreshingAuth = false
+    private var fallbackAnchorWindow: NSWindow?
 
-    func configureIfNeeded() {
-        guard !isClerkConfigured else {
-            syncFromClerk()
-            return
-        }
+    private override init() {}
 
-        let key = ClerkConfig.publishableKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !key.isEmpty else {
-            print("Clerk auth misconfigured: set ClerkConfig.publishableKey")
-            return
-        }
+    func login() {
+        guard !isLoadingAuth else { return }
 
-        let redirectConfig = Clerk.Options.RedirectConfig(
-            redirectUrl: ClerkConfig.redirectUrl,
-            callbackUrlScheme: ClerkConfig.callbackUrlScheme
-        )
+        let verifier = randomString(length: 64)
+        let challenge = codeChallenge(for: verifier)
+        let oauthState = randomString(length: 32)
 
-        #if DEBUG
-        let options = Clerk.Options(
-            logLevel: .debug,
-            telemetryEnabled: false,
-            redirectConfig: redirectConfig,
-            loggerHandler: { entry in
-                // Surfaces ClerkKit errors with trace IDs during local debugging.
-                print(entry.formattedMessage)
+        currentState = oauthState
+        currentVerifier = verifier
+
+        var components = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)
+        components?.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "scope", value: "openid email profile"),
+            URLQueryItem(name: "state", value: oauthState),
+            URLQueryItem(name: "code_challenge", value: challenge),
+            URLQueryItem(name: "code_challenge_method", value: "S256")
+        ]
+
+        guard let authURL = components?.url else { return }
+
+        isLoadingAuth = true
+        self.state = .signingIn
+
+        authSession = ASWebAuthenticationSession(url: authURL, callbackURLScheme: callbackScheme) { [weak self] url, error in
+            Task { @MainActor in
+                guard let self else { return }
+                self.isLoadingAuth = false
+
+                if let error {
+                    print("Auth session error:", error.localizedDescription)
+                    self.signOutLocal()
+                    return
+                }
+
+                guard let url else { return }
+                await self.handleRedirect(url)
             }
-        )
-        #else
-        let options = Clerk.Options(redirectConfig: redirectConfig)
-        #endif
+        }
 
-        Clerk.configure(publishableKey: key, options: options)
-        isClerkConfigured = true
-        syncFromClerk()
+        authSession?.presentationContextProvider = self
+
+        // Turn this off while debugging to reduce weird session/cookie edge cases.
+        authSession?.prefersEphemeralWebBrowserSession = false
+
+        print("Auth URL:", authURL.absoluteString)
+
+        let started = authSession?.start() ?? false
+        if !started {
+            print("Auth session failed to start (start() returned false)")
+            self.isLoadingAuth = false
+            self.signOutLocal()
+        }
     }
 
-    // MARK: - Public API
+    func signIn() {
+        login()
+    }
 
-    /// Starts the Clerk sign-in flow by opening the system browser.
-    /// The app will receive a callback URL when authentication completes.
     func startSignIn() {
-        guard state != .signingIn else { return }
-        configureIfNeeded()
-        guard isClerkConfigured else { return }
-
-        state = .signingIn
-        Task {
-            do {
-                let provider = OAuthProvider(strategy: ClerkConfig.oauthStrategy)
-                let result = try await Clerk.shared.auth.signInWithOAuth(
-                    provider: provider,
-                    transferable: ClerkConfig.allowSignUpTransfer
-                )
-                handleTransferFlowResult(result)
-            } catch {
-                handleFailure(error)
-            }
-        }
+        login()
     }
 
-    /// Signs out the current Clerk session.
     func signOut() {
-        configureIfNeeded()
-        guard isClerkConfigured else { return }
+        signOutLocal()
+    }
 
-        state = .signingIn
-        Task {
-            do {
-                try await Clerk.shared.auth.signOut()
-                currentUser = nil
-                state = .signedOut
-            } catch {
-                handleFailure(error)
-            }
+    func handleClerkCallback(url: URL) async {
+        await handleRedirect(url)
+    }
+
+    func refreshAuthState() async {
+        guard !isRefreshingAuth else { return }
+        isRefreshingAuth = true
+        isLoadingAuth = true
+
+        defer {
+            isRefreshingAuth = false
+            isLoadingAuth = false
+        }
+
+        guard let accessToken = KeychainHelper.load(service: "resolve.auth", account: "access_token") else {
+            signOutLocal()
+            return
+        }
+
+        do {
+            let profile = try await fetchUserProfile(accessToken: accessToken)
+            currentUser = profile
+            userId = profile.id
+            isAuthenticated = true
+            state = .signedIn(profile)
+        } catch {
+            signOutLocal()
         }
     }
 
-    /// Completes an in-progress Clerk sign-up by supplying missing required fields.
-    func submitSignUpDetails(phoneNumber: String, password: String) {
-        guard isClerkConfigured else { return }
+    func exchangeCode(code: String) async throws -> TokenResponse {
+        guard let verifier = currentVerifier else {
+            throw AuthError.missingVerifier
+        }
+        return try await exchangeCode(code: code, verifier: verifier)
+    }
 
-        Task {
-            do {
-                guard var signUp = Clerk.shared.auth.currentSignUp else {
-                    throw AuthError.incompleteFlow("No active sign-up. Please try again.")
-                }
+    func fetchUserProfile() async throws -> ClerkUser {
+        guard let accessToken = KeychainHelper.load(service: "resolve.auth", account: "access_token") else {
+            throw AuthError.missingAccessToken
+        }
+        return try await fetchUserProfile(accessToken: accessToken)
+    }
 
-                state = .signingIn
+    // MARK: - OAuth internals
 
-                // Supply missing fields.
-                signUp = try await signUp.update(
-                    password: password,
-                    phoneNumber: phoneNumber.trimmingCharacters(in: .whitespacesAndNewlines)
-                )
+    private func handleRedirect(_ url: URL) async {
+        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return }
+        let items = components.queryItems ?? []
+        let code = items.first { $0.name == "code" }?.value
+        let state = items.first { $0.name == "state" }?.value
 
-                // If phone is required, Clerk will typically require SMS verification.
-                if signUp.unverifiedFields.contains(.phoneNumber) {
-                    _ = try await signUp.sendPhoneCode()
-                    state = .signUpNeedsPhoneCode(requirements(from: signUp))
-                    return
-                }
+        guard let code, let state, state == currentState else {
+            return
+        }
 
-                if signUp.status == .complete {
-                    transitionToSignedInAfterAuth()
-                    return
-                }
+        guard let verifier = currentVerifier else { return }
 
-                if signUp.status == .missingRequirements {
-                    state = .signUpNeedsDetails(requirements(from: signUp))
-                    return
-                }
+        do {
+            let tokenResponse = try await exchangeCode(code: code, verifier: verifier)
+            storeTokens(tokenResponse)
 
-                throw AuthError.incompleteFlow("Sign-up not complete (status: \(signUp.status.rawValue))")
-            } catch {
-                handleFailure(error)
-            }
+            let profile = try await fetchUserProfile(accessToken: tokenResponse.accessToken)
+            currentUser = profile
+            userId = profile.id
+            isAuthenticated = true
+            self.state = .signedIn(profile)
+        } catch {
+            signOutLocal()
         }
     }
 
-    /// Verifies the SMS code for the in-progress Clerk sign-up.
-    func verifySignUpPhoneCode(_ code: String) {
-        guard isClerkConfigured else { return }
+    private func exchangeCode(code: String, verifier: String) async throws -> TokenResponse {
+        var request = URLRequest(url: tokenURL)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        Task {
-            do {
-                guard var signUp = Clerk.shared.auth.currentSignUp else {
-                    throw AuthError.incompleteFlow("No active sign-up. Please try again.")
-                }
+        var components = URLComponents()
+        components.queryItems = [
+            URLQueryItem(name: "grant_type", value: "authorization_code"),
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "code", value: code),
+            URLQueryItem(name: "redirect_uri", value: redirectURI),
+            URLQueryItem(name: "code_verifier", value: verifier)
+        ]
 
-                state = .signingIn
-                signUp = try await signUp.verifyPhoneCode(code.trimmingCharacters(in: .whitespacesAndNewlines))
+        request.httpBody = components.percentEncodedQuery?.data(using: .utf8)
 
-                if signUp.status == .complete {
-                    transitionToSignedInAfterAuth()
-                    return
-                }
-
-                if signUp.status == .missingRequirements {
-                    // Could still need other fields after verification.
-                    state = .signUpNeedsDetails(requirements(from: signUp))
-                    return
-                }
-
-                throw AuthError.incompleteFlow("Sign-up not complete (status: \(signUp.status.rawValue))")
-            } catch {
-                handleFailure(error)
-            }
-        }
-    }
-
-    /// Handles the callback URL from Clerk (custom scheme).
-    func handleCallback(url: URL) {
-        #if DEBUG
-        print("Clerk callback URL:", url.absoluteString)
-        #endif
-        // ClerkKit uses `ASWebAuthenticationSession`, which handles the callback URL internally.
-        // If this app is opened with a matching URL anyway, just attempt a state sync.
-        transitionToSignedInAfterAuth()
-    }
-
-    // MARK: - Internals
-
-    private func transitionToSignedInAfterAuth(timeoutSeconds: TimeInterval = 5.0) {
-        state = .signingIn
-
-        Task {
-            let didSync = await waitForUserAndSync(timeoutSeconds: timeoutSeconds)
-            if !didSync {
-                print("Clerk sign-in completed but user was not available after \(timeoutSeconds)s")
-                currentUser = nil
-                state = .signedOut
-            }
-        }
-    }
-
-    private func waitForUserAndSync(timeoutSeconds: TimeInterval) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeoutSeconds)
-
-        while Date() < deadline {
-            if let user = Clerk.shared.user {
-                let mapped = mapUser(user)
-                currentUser = mapped
-                state = .signedIn(mapped)
-                return true
-            }
-
-            do {
-                try await Task.sleep(nanoseconds: 150_000_000)
-            } catch {
-                return false
-            }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw AuthError.tokenExchangeFailed
         }
 
-        if let user = Clerk.shared.user {
-            let mapped = mapUser(user)
-            currentUser = mapped
-            state = .signedIn(mapped)
-            return true
+        return try JSONDecoder().decode(TokenResponse.self, from: data)
+    }
+
+    private func fetchUserProfile(accessToken: String) async throws -> ClerkUser {
+        var request = URLRequest(url: userInfoURL)
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200...299).contains(httpResponse.statusCode) else {
+            throw AuthError.userInfoFailed
         }
 
-        return false
-    }
-
-    private func handleFailure(_ error: Error) {
-        if let apiError = error as? ClerkAPIError {
-            print(
-                "Clerk auth error:",
-                "code=\(apiError.code)",
-                "message=\(apiError.message ?? "")",
-                "long=\(apiError.longMessage ?? "")",
-                "trace=\(apiError.clerkTraceId ?? "")"
-            )
-
-            if apiError.code == "session_exists" {
-                // Not a real failure: user is already authenticated.
-                transitionToSignedInAfterAuth()
-                return
-            }
-
-            if apiError.code == "external_account_not_found" {
-                print(
-                    "Hint: This usually means there is no existing Clerk user linked to this Google account yet. " +
-                    "Set ClerkConfig.allowSignUpTransfer=true to allow sign-up, or create/link the user in Clerk Dashboard."
-                )
-            }
-        } else {
-            print("Clerk auth error:", error)
-        }
-        currentUser = nil
-        state = .signedOut
-    }
-
-    // MARK: - Internals
-
-    private enum AuthError: LocalizedError {
-        case incompleteFlow(String)
-
-        var errorDescription: String? {
-            switch self {
-            case .incompleteFlow(let message):
-                return message
-            }
-        }
-    }
-
-    private func validateCompletion(_ result: TransferFlowResult) throws {
-        switch result {
-        case .signIn(let signIn):
-            guard signIn.status == .complete else {
-                throw AuthError.incompleteFlow("Sign-in not complete (status: \(signIn.status.rawValue))")
-            }
-        case .signUp(let signUp):
-            if signUp.status == .missingRequirements {
-                let missing = signUp.missingFields.map(\.rawValue).joined(separator: ", ")
-                let required = signUp.requiredFields.map(\.rawValue).joined(separator: ", ")
-                throw AuthError.incompleteFlow(
-                    "Sign-up requires more steps (missing_requirements). " +
-                    "Missing fields: [\(missing)]. Required fields: [\(required)]. " +
-                    "Fix: in Clerk Dashboard, make those fields optional (or complete sign-up in a hosted UI)."
-                )
-            }
-
-            guard signUp.status == .complete else {
-                throw AuthError.incompleteFlow("Sign-up not complete (status: \(signUp.status.rawValue))")
-            }
-        }
-    }
-
-    private func handleTransferFlowResult(_ result: TransferFlowResult) {
-        switch result {
-        case .signIn(let signIn):
-            if signIn.status == .complete {
-                transitionToSignedInAfterAuth()
-            } else {
-                handleFailure(AuthError.incompleteFlow("Sign-in not complete (status: \(signIn.status.rawValue))"))
-            }
-
-        case .signUp(let signUp):
-            if signUp.status == .complete {
-                transitionToSignedInAfterAuth()
-                return
-            }
-
-            if signUp.status == .missingRequirements {
-                state = .signUpNeedsDetails(requirements(from: signUp))
-                return
-            }
-
-            handleFailure(AuthError.incompleteFlow("Sign-up not complete (status: \(signUp.status.rawValue))"))
-        }
-    }
-
-    private func requirements(from signUp: SignUp) -> SignUpRequirements {
-        SignUpRequirements(
-            missingFields: signUp.missingFields.map(\.rawValue),
-            requiredFields: signUp.requiredFields.map(\.rawValue),
-            phoneNumber: signUp.phoneNumber
-        )
-    }
-
-    private func syncFromClerk() {
-        guard isClerkConfigured else { return }
-
-        if let user = Clerk.shared.user {
-            let mapped = mapUser(user)
-            currentUser = mapped
-            state = .signedIn(mapped)
-        } else {
-            currentUser = nil
-            state = .signedOut
-        }
-    }
-
-    private func mapUser(_ user: ClerkKit.User) -> ClerkUser {
-        let name = [user.firstName, user.lastName]
+        let profile = try JSONDecoder().decode(UserInfoResponse.self, from: data)
+        let fullName = [profile.givenName, profile.familyName]
             .compactMap { $0 }
             .joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let email = user.primaryEmailAddress?.emailAddress
-            ?? user.emailAddresses.first?.emailAddress
-            ?? ""
+        let email = profile.email ?? ""
+        let name = fullName.isEmpty ? (email.isEmpty ? "Signed in" : email) : fullName
 
-        return ClerkUser(
-            id: user.id,
-            name: name.isEmpty ? "Unknown" : name,
-            email: email
-        )
+        return ClerkUser(id: profile.sub, name: name, email: email)
+    }
+
+    private func storeTokens(_ response: TokenResponse) {
+        KeychainHelper.save(service: "resolve.auth", account: "access_token", value: response.accessToken)
+        if let refresh = response.refreshToken {
+            KeychainHelper.save(service: "resolve.auth", account: "refresh_token", value: refresh)
+        }
+        if let idToken = response.idToken {
+            KeychainHelper.save(service: "resolve.auth", account: "id_token", value: idToken)
+        }
+    }
+
+    private func signOutLocal() {
+        KeychainHelper.delete(service: "resolve.auth", account: "access_token")
+        KeychainHelper.delete(service: "resolve.auth", account: "refresh_token")
+        KeychainHelper.delete(service: "resolve.auth", account: "id_token")
+        currentUser = nil
+        userId = nil
+        isAuthenticated = false
+        isLoadingAuth = false
+        state = .signedOut
+    }
+
+    // MARK: - PKCE helpers
+
+    private func randomString(length: Int) -> String {
+        let charset = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~")
+        var result = ""
+        result.reserveCapacity(length)
+
+        var bytes = [UInt8](repeating: 0, count: length)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+
+        for byte in bytes {
+            result.append(charset[Int(byte) % charset.count])
+        }
+
+        return result
+    }
+
+    private func codeChallenge(for verifier: String) -> String {
+        let data = Data(verifier.utf8)
+        let digest = SHA256.hash(data: data)
+        return base64urlEncode(Data(digest))
+    }
+
+    private func base64urlEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private enum AuthError: Error {
+        case tokenExchangeFailed
+        case userInfoFailed
+        case missingVerifier
+        case missingAccessToken
+    }
+}
+
+struct TokenResponse: Decodable {
+    let accessToken: String
+    let idToken: String?
+    let refreshToken: String?
+    let expiresIn: Int
+
+    enum CodingKeys: String, CodingKey {
+        case accessToken = "access_token"
+        case idToken = "id_token"
+        case refreshToken = "refresh_token"
+        case expiresIn = "expires_in"
+    }
+}
+
+private struct UserInfoResponse: Decodable {
+    let sub: String
+    let email: String?
+    let givenName: String?
+    let familyName: String?
+
+    enum CodingKeys: String, CodingKey {
+        case sub
+        case email
+        case givenName = "given_name"
+        case familyName = "family_name"
+    }
+}
+
+private enum KeychainHelper {
+    static func save(service: String, account: String, value: String) {
+        let data = Data(value.utf8)
+        delete(service: service, account: account)
+
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock
+        ]
+
+        SecItemAdd(query as CFDictionary, nil)
+    }
+
+    static func load(service: String, account: String) -> String? {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account,
+            kSecReturnData: true,
+            kSecMatchLimit: kSecMatchLimitOne
+        ]
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let data = item as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func delete(service: String, account: String) {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ]
+
+        SecItemDelete(query as CFDictionary)
+    }
+}
+
+extension AuthManager: ASWebAuthenticationPresentationContextProviding {
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        if let key = NSApp.keyWindow { return key }
+        if let main = NSApp.mainWindow { return main }
+        if let visible = NSApp.windows.first(where: { $0.isVisible }) { return visible }
+
+        // Fallback: create a tiny hidden window so ASWebAuthenticationSession always has an anchor.
+        if fallbackAnchorWindow == nil {
+            let w = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1, height: 1),
+                styleMask: [.titled],
+                backing: .buffered,
+                defer: false
+            )
+            w.isReleasedWhenClosed = false
+            w.level = .floating
+            w.orderOut(nil) // keep hidden
+            fallbackAnchorWindow = w
+        }
+        return fallbackAnchorWindow!
     }
 }

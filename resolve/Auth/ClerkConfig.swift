@@ -14,13 +14,5 @@ enum ClerkConfig {
     static let callbackUrlScheme = "resolve"
 
     /// Must be allowed in Clerk Dashboard → Redirect URLs.
-    static let redirectUrl = "resolve://clerk/oauth-callback"
-
-    /// Clerk OAuth strategy (examples: "oauth_google", "oauth_github", "oauth_apple").
-    static let oauthStrategy = "oauth_google"
-
-    /// If `true`, Clerk may transfer a failed sign-in into a sign-up for new users.
-    /// If `false`, only existing users can sign in (new users will see errors like
-    /// `external_account_not_found`).
-    static let allowSignUpTransfer = true
+    static let redirectUrl = "resolve://auth-callback"
 }

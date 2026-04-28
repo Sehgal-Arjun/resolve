@@ -1,6 +1,7 @@
 import Foundation
 
 enum ClassifierClient {
+    private static let service = ResolveAIService()
     private static let CLASSIFIER_SYSTEM_PROMPT = """
 You are a classifier. Do not answer the question.
 You will be given a QUESTION and a JSON array of short answers (provider + summary).
@@ -47,41 +48,6 @@ Stance summary guidance:
         let summary: String
     }
 
-    private struct Message: Encodable {
-        let role: String
-        let content: String
-    }
-
-    private struct RequestBody: Encodable {
-        let model: String
-        let messages: [Message]
-        let temperature: Double
-        let maxTokens: Int
-        let responseFormat: ResponseFormat
-
-        struct ResponseFormat: Encodable {
-            let type: String
-        }
-
-        enum CodingKeys: String, CodingKey {
-            case model
-            case messages
-            case temperature
-            case maxTokens = "max_tokens"
-            case responseFormat = "response_format"
-        }
-    }
-
-    private struct ResponseBody: Decodable {
-        struct Choice: Decodable {
-            struct Message: Decodable {
-                let content: String
-            }
-            let message: Message
-        }
-        let choices: [Choice]
-    }
-
     struct ClassifierOutput: Decodable {
         struct Group: Decodable {
             let stance_id: String
@@ -92,15 +58,6 @@ Stance summary guidance:
     }
 
     static func classifyNarrative(question: String, summaries: [AdvocateResult]) async -> ClassifierOutput? {
-        let apiKey = APIKeys.LABELLER
-        guard !apiKey.isEmpty else {
-            return nil
-        }
-
-        guard let url = URL(string: "https://api.openai.com/v1/chat/completions") else {
-            return nil
-        }
-
         let items = summaries.map {
             InputItem(provider: $0.provider.rawValue, summary: $0.summary)
         }
@@ -122,37 +79,29 @@ Stance summary guidance:
     \(inputJSON)
     """
 
-        let body = RequestBody(
-            model: "gpt-4.1-nano",
-            messages: [
-                Message(role: "system", content: CLASSIFIER_SYSTEM_PROMPT),
-                Message(role: "user", content: userContent)
-            ],
-            temperature: 0.1,
-            maxTokens: 500,
-            responseFormat: RequestBody.ResponseFormat(type: "json_object")
-        )
-
         do {
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(body)
+            let prompt = buildPrompt(system: CLASSIFIER_SYSTEM_PROMPT, user: userContent)
+            let response = try await service.classifier(prompt: prompt)
+            let content = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
 
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            guard let json = extractJSON(from: content) else {
                 return nil
             }
 
-            let decoded = try JSONDecoder().decode(ResponseBody.self, from: data)
-            guard let content = decoded.choices.first?.message.content else {
-                return nil
-            }
-
-            return try JSONDecoder().decode(ClassifierOutput.self, from: Data(content.utf8))
+            return try JSONDecoder().decode(ClassifierOutput.self, from: Data(json.utf8))
         } catch {
             return nil
         }
+    }
+
+    private static func buildPrompt(system: String, user: String) -> String {
+        "SYSTEM:\n\(system)\n\nUSER:\n\(user)"
+    }
+
+    private static func extractJSON(from text: String) -> String? {
+        guard let start = text.firstIndex(of: "{") else { return nil }
+        guard let end = text.lastIndex(of: "}") else { return nil }
+        guard start < end else { return nil }
+        return String(text[start...end])
     }
 }
