@@ -2,22 +2,23 @@ import SwiftUI
 
 struct LandingView: View {
     @EnvironmentObject private var authManager: AuthManager
+    @ObservedObject private var settings = UserSettingsStore.shared
 
-    private let cardWidth: CGFloat = 520
-    private let cardHeight: CGFloat = 320
+    private var cardWidth: CGFloat { settings.scaled(520) }
+    private var cardHeight: CGFloat { settings.scaled(320) }
     private let cardCornerRadius: CGFloat = 16
 
     @State private var isContinueHovering = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
 
             VStack(alignment: .leading, spacing: 12) {
                 HStack(spacing: 10) {
@@ -49,11 +50,14 @@ struct LandingView: View {
             }
             .padding(22)
             .frame(width: cardWidth)
-            .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous))
         }
         .frame(width: cardWidth, height: cardHeight)
         .onAppear {
-            CommandPanelController.shared.setSize(width: cardWidth, height: cardHeight, animated: true)
+            CommandPanelController.shared.setSize(width: cardWidth, height: cardHeight, animated: !settings.reducedMotion)
+        }
+        .onChange(of: settings.panelSize) { _ in
+            CommandPanelController.shared.setSize(width: cardWidth, height: cardHeight, animated: !settings.reducedMotion)
         }
     }
 }

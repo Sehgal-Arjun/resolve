@@ -38,6 +38,9 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         guard let panel else { return }
         guard panel.isVisible else { return }
         savedFrame = panel.frame
+        if isPrimary {
+            UserSettingsStore.shared.setPersistedPrimaryPanelFrame(panel.frame)
+        }
         panel.orderOut(nil)
     }
 
@@ -45,21 +48,62 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         createPanelIfNeeded()
         guard let panel else { return }
 
-        if let savedFrame = savedFrame {
-            panel.setFrame(savedFrame, display: true)
-            self.savedFrame = nil
-        } else if !hasBeenPositioned {
+        let anchor = UserSettingsStore.shared.panelAnchor
+
+        switch anchor {
+        case .center:
+            // Re-snap to the anchor on every show, not just the first launch.
             position(panel)
-            hasBeenPositioned = true
+            savedFrame = nil
+
+        case .lastPosition:
+            if let savedFrame {
+                panel.setFrame(savedFrame, display: true)
+                self.savedFrame = nil
+            } else if !hasBeenPositioned {
+                position(panel)
+            }
+            // Otherwise leave the panel where it was — orderOut preserves frame.
         }
+
+        hasBeenPositioned = true
 
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Snaps the panel to the current anchor immediately (used when the user
+    /// changes `panelAnchor` while panels are visible).
+    func reapplyAnchor() {
+        guard let panel, panel.isVisible else { return }
+        let anchor = UserSettingsStore.shared.panelAnchor
+        switch anchor {
+        case .center:
+            position(panel)
+        case .lastPosition:
+            // Nothing to do — panel stays where it currently is, which becomes
+            // the "last position" going forward.
+            break
+        }
+    }
+
     func closeInstance() {
         guard !isPrimary else { return }
         panel?.close()
+    }
+
+    /// Forces macOS to recompute the panel's window shadow from the current
+    /// pixel mask. Needed when the SwiftUI corner radius changes — without this,
+    /// the system keeps drawing the previous shadow outline.
+    func invalidateShadow() {
+        panel?.invalidateShadow()
+    }
+
+    func applyHideOnFocusLoss(_ enabled: Bool) {
+        // No-op now: we hide explicitly via CommandPanelManager's deactivation
+        // observer instead of relying on AppKit's hidesOnDeactivate, which
+        // leaves `panel.isVisible` returning true after auto-hide.
+        _ = enabled
     }
 
     func setHeight(_ height: CGFloat, animated: Bool) {
@@ -151,10 +195,16 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         panel.isMovableByWindowBackground = true
         panel.isFloatingPanel = true
         panel.level = .floating
-        panel.hasShadow = true
+        // Disable the macOS window shadow — it's biased downward and clashes
+        // with the SwiftUI ambient stance glow which surrounds the whole panel.
+        panel.hasShadow = false
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        // Don't use AppKit's built-in hidesOnDeactivate — it leaves
+        // `panel.isVisible` reporting true after the auto-hide, which breaks
+        // `smartToggle`. CommandPanelManager hides explicitly on
+        // NSApplicationDidResignActive when the user setting is on.
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
         panel.delegate = self
@@ -166,15 +216,36 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
     private func position(_ panel: NSPanel) {
         guard let screen = NSScreen.main else { return }
         let frame = screen.visibleFrame
-        let x = frame.midX - panel.frame.width / 2
-        let y = frame.maxY - panel.frame.height - 120
-        panel.setFrameOrigin(NSPoint(x: x, y: y))
+        let anchor = UserSettingsStore.shared.panelAnchor
+
+        switch anchor {
+        case .center:
+            let x = frame.midX - panel.frame.width / 2
+            let y = frame.maxY - panel.frame.height - 120
+            panel.setFrameOrigin(NSPoint(x: x, y: y))
+
+        case .lastPosition:
+            // Only the primary panel persists its frame across launches; secondary
+            // panels still get a sensible center default.
+            if isPrimary, let stored = UserSettingsStore.shared.persistedPrimaryPanelFrame {
+                panel.setFrame(stored, display: true)
+            } else {
+                let x = frame.midX - panel.frame.width / 2
+                let y = frame.maxY - panel.frame.height - 120
+                panel.setFrameOrigin(NSPoint(x: x, y: y))
+            }
+        }
     }
 
     // MARK: - NSWindowDelegate
 
     func windowDidBecomeKey(_ notification: Notification) {
         CommandPanelController.activeController = self
+    }
+
+    func windowDidMove(_ notification: Notification) {
+        guard isPrimary, let panel else { return }
+        UserSettingsStore.shared.setPersistedPrimaryPanelFrame(panel.frame)
     }
 
     func windowWillClose(_ notification: Notification) {

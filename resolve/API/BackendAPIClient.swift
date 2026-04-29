@@ -70,27 +70,46 @@ final class BackendAPIClient {
         conversationId: UUID,
         content: String,
         promptType: String,
-        summaryFormat: String? = nil
+        summaryFormat: String? = nil,
+        enabledAdvocates: [String]? = nil,
+        arbiterStyle: String? = nil
     ) async throws -> PostMessageResponse {
-        try await postMessage(conversationId: conversationId.uuidString, content: content, promptType: promptType, summaryFormat: summaryFormat)
+        try await postMessage(
+            conversationId: conversationId.uuidString,
+            content: content,
+            promptType: promptType,
+            summaryFormat: summaryFormat,
+            enabledAdvocates: enabledAdvocates,
+            arbiterStyle: arbiterStyle
+        )
     }
 
     func postMessage(
         conversationId: String,
         content: String,
         promptType: String,
-        summaryFormat: String? = nil
+        summaryFormat: String? = nil,
+        enabledAdvocates: [String]? = nil,
+        arbiterStyle: String? = nil
     ) async throws -> PostMessageResponse {
         struct Body: Encodable {
             let content: String
             let promptType: String
             let summaryFormat: String?
+            let enabledAdvocates: [String]?
+            let arbiterStyle: String?
         }
 
         return try await request(
             path: "/conversations/\(conversationId)/messages",
             method: "POST",
-            body: Body(content: content, promptType: promptType, summaryFormat: summaryFormat)
+            body: Body(
+                content: content,
+                promptType: promptType,
+                summaryFormat: summaryFormat,
+                enabledAdvocates: enabledAdvocates,
+                arbiterStyle: arbiterStyle
+            )
         )
     }
 
@@ -98,26 +117,44 @@ final class BackendAPIClient {
         conversationId: UUID,
         messageId: UUID,
         promptType: String? = nil,
-        summaryFormat: String? = nil
+        summaryFormat: String? = nil,
+        enabledAdvocates: [String]? = nil,
+        arbiterStyle: String? = nil
     ) async throws -> PostMessageResponse {
-        try await resolve(conversationId: conversationId.uuidString, messageId: messageId.uuidString, promptType: promptType, summaryFormat: summaryFormat)
+        try await resolve(
+            conversationId: conversationId.uuidString,
+            messageId: messageId.uuidString,
+            promptType: promptType,
+            summaryFormat: summaryFormat,
+            enabledAdvocates: enabledAdvocates,
+            arbiterStyle: arbiterStyle
+        )
     }
 
     func resolve(
         conversationId: String,
         messageId: String,
         promptType: String? = nil,
-        summaryFormat: String? = nil
+        summaryFormat: String? = nil,
+        enabledAdvocates: [String]? = nil,
+        arbiterStyle: String? = nil
     ) async throws -> PostMessageResponse {
         struct Body: Encodable {
             let promptType: String?
             let summaryFormat: String?
+            let enabledAdvocates: [String]?
+            let arbiterStyle: String?
         }
 
         return try await request(
             path: "/conversations/\(conversationId)/messages/\(messageId)/resolve",
             method: "POST",
-            body: Body(promptType: promptType, summaryFormat: summaryFormat)
+            body: Body(
+                promptType: promptType,
+                summaryFormat: summaryFormat,
+                enabledAdvocates: enabledAdvocates,
+                arbiterStyle: arbiterStyle
+            )
         )
     }
 

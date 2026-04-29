@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootPanelView: View {
     @ObservedObject var authManager: AuthManager
+    @ObservedObject private var settings = UserSettingsStore.shared
 
     private enum SignedInRoute {
         case home
@@ -14,7 +15,12 @@ struct RootPanelView: View {
     @State private var signedInRoute: SignedInRoute = .home
     @State private var selectedConversationId: UUID?
     @State private var diveInToken: NSObjectProtocol?
+    @State private var openSettingsToken: NSObjectProtocol?
     @Environment(\.resolvePanelController) private var panelController
+
+    private var isPrimaryPanel: Bool {
+        panelController?.isPrimary ?? true
+    }
 
     var body: some View {
         Group {
@@ -23,6 +29,7 @@ struct RootPanelView: View {
                 case .home:
                     AuthenticatedView(
                         user: user,
+                        isPrimary: isPrimaryPanel,
                         onDiveIn: { signedInRoute = .main },
                         onPastChats: { signedInRoute = .pastChats },
                         onHowItWorks: { signedInRoute = .howItWorks },
@@ -62,6 +69,19 @@ struct RootPanelView: View {
             }
         }
         .environmentObject(authManager)
+        .tint(settings.resolvedAccentColor)
+        .onChange(of: settings.cornerRadiusStyle) { _, _ in
+            CommandPanelManager.shared.invalidateAllShadows()
+        }
+        .onChange(of: settings.panelTranslucency) { _, _ in
+            CommandPanelManager.shared.invalidateAllShadows()
+        }
+        .onChange(of: settings.panelAnchor) { _, _ in
+            CommandPanelManager.shared.reapplyAnchorToAll()
+        }
+        .onChange(of: settings.hideOnFocusLoss) { _, newValue in
+            CommandPanelManager.shared.applyHideOnFocusLossToAll(newValue)
+        }
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route
@@ -81,12 +101,28 @@ struct RootPanelView: View {
                     signedInRoute = .main
                 }
             }
+            openSettingsToken = NotificationCenter.default.addObserver(
+                forName: openSettingsNotification,
+                object: nil,
+                queue: .main
+            ) { _ in
+                // Settings only lives on the original instance. The command
+                // already filters this, but guard here too in case the
+                // notification is posted from anywhere else.
+                guard panelController?.isPrimary == true else { return }
+                if case .signedIn = authManager.state {
+                    signedInRoute = .settings
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await authManager.refreshAuthState() }
         }
         .onDisappear {
             if let token = diveInToken {
+                NotificationCenter.default.removeObserver(token)
+            }
+            if let token = openSettingsToken {
                 NotificationCenter.default.removeObserver(token)
             }
         }

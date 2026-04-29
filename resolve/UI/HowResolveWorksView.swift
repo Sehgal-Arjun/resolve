@@ -2,18 +2,20 @@ import SwiftUI
 
 struct HowResolveWorksView: View {
     let onBack: () -> Void
-    private let cardWidth: CGFloat = 520
+    private var cardWidth: CGFloat { settings.scaled(520) }
     private let cardCornerRadius: CGFloat = 16
+
+    @ObservedObject private var settings = UserSettingsStore.shared
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
                 .frame(width: cardWidth)
 
             ScrollView {

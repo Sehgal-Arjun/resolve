@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AuthenticatedView: View {
     let user: AuthManager.ClerkUser
+    let isPrimary: Bool
     let onDiveIn: () -> Void
     let onPastChats: () -> Void
     let onHowItWorks: () -> Void
@@ -17,26 +18,28 @@ struct AuthenticatedView: View {
         return trimmed
     }
 
-    private let panelWidth: CGFloat = 520
-    private let panelHeight: CGFloat = 380
-    private let cardWidth: CGFloat = 520
+    private var panelWidth: CGFloat { settings.scaled(520) }
+    private var panelHeight: CGFloat { settings.scaled(410) }
+    private var cardWidth: CGFloat { settings.scaled(520) }
     private let cardCornerRadius: CGFloat = 16
 
     @Environment(\.resolveCanCloseInstance) private var canCloseInstance
     @Environment(\.resolveCloseAction) private var closeAction
+
+    @ObservedObject private var settings = UserSettingsStore.shared
 
     @State private var isDiveHovering = false
     @State private var isCloseHovering = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
-                .fill(.ultraThinMaterial)
+            RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
+                .fill(settings.panelTranslucency.material)
                 .overlay(
-                    RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous)
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .shadow(radius: 16)
+                .shadow(color: Color.black.opacity(0.30), radius: 14, x: 0, y: 0)
                 .frame(width: cardWidth)
 
             VStack(alignment: .leading, spacing: 12) {
@@ -70,11 +73,13 @@ struct AuthenticatedView: View {
                         onPastChats()
                     }
 
-                    Text("·")
-                        .foregroundStyle(.tertiary)
+                    if isPrimary {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("Settings") {
-                        onSettings()
+                        ResolveInlineLinkButton("Settings") {
+                            onSettings()
+                        }
                     }
 
                     Text("·")
@@ -94,12 +99,18 @@ struct AuthenticatedView: View {
 
                 keyboardShortcuts
 
-                Text("Models active: ChatGPT · Claude · Gemini · DeepSeek · Mistral")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundStyle(.tertiary)
+                if !isPrimary {
+                    Text("Settings only lives on the original instance. Press ⌘ ⇧ O to focus it.")
+                        .font(.system(size: 11.5, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
+                }
+
+                Spacer(minLength: 0)
             }
             .padding(22)
-            .frame(width: cardWidth)
+            .frame(width: cardWidth, height: panelHeight, alignment: .topLeading)
             .clipShape(RoundedRectangle(cornerRadius: cardCornerRadius, style: .continuous))
 
             if canCloseInstance, let closeAction {
@@ -135,7 +146,10 @@ struct AuthenticatedView: View {
         }
         .frame(width: panelWidth, height: panelHeight)
         .onAppear {
-            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: true)
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
+        }
+        .onChange(of: settings.panelSize) { _ in
+            CommandPanelController.shared.setSize(width: panelWidth, height: panelHeight, animated: !settings.reducedMotion)
         }
     }
 
@@ -153,7 +167,11 @@ struct AuthenticatedView: View {
                 if canCloseInstance {
                     ShortcutRow(label: "Close instance", keys: "⌘ W")
                 }
-                ShortcutRow(label: "Settings", keys: "⌘ ,")
+                if isPrimary {
+                    ShortcutRow(label: "Settings", keys: "⌘ ,")
+                } else {
+                    ShortcutRow(label: "Focus original", keys: "⌘ ⇧ O")
+                }
             }
         }
         .padding(.top, 4)
