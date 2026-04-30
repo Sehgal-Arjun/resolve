@@ -28,13 +28,18 @@ struct OnboardingFlowView: View {
         case concept          // three-beat product explainer
     }
 
-    let onComplete: () -> Void
+    /// Called when the user finishes (or skips) onboarding. The Bool is
+    /// `true` when the primary CTA was used ("Try Resolve") and the caller
+    /// should drop the user straight into a new chat. `false` means the user
+    /// took the soft exit ("Skip") and should land on the home screen.
+    let onComplete: (Bool) -> Void
 
     @ObservedObject private var settings = UserSettingsStore.shared
     @EnvironmentObject private var authManager: AuthManager
 
     @State private var step: Step = .arrival
     @State private var togglePaletteToken: NSObjectProtocol?
+    @State private var diveInToken: NSObjectProtocol?
     @State private var conceptRevealCount: Int = 0
     @State private var arrivalDidStart: Bool = false
 
@@ -46,18 +51,26 @@ struct OnboardingFlowView: View {
     /// panel chrome through the entire transition.
     private let morphDuration: Double = 0.45
 
+    /// Panel sizes are hand-tuned to fit each step's content snugly. The
+    /// rule is "panel height ≈ content height + padding" — the only step
+    /// that intentionally has more height than content is `.arrival`, which
+    /// is square so the standalone R reads as a logo and not a caption.
     private var panelSize: CGSize {
         switch step {
         case .arrival:
             return CGSize(width: settings.scaled(160), height: settings.scaled(160))
-        case .unfurled, .hotkey, .hotkeyHidden, .hotkeyResolved:
-            return CGSize(width: settings.scaled(480), height: settings.scaled(280))
-        case .signIn, .signingIn:
-            return CGSize(width: settings.scaled(480), height: settings.scaled(330))
+        case .unfurled, .hotkey, .hotkeyHidden:
+            return CGSize(width: settings.scaled(480), height: settings.scaled(215))
+        case .hotkeyResolved:
+            return CGSize(width: settings.scaled(480), height: settings.scaled(225))
+        case .signIn:
+            return CGSize(width: settings.scaled(480), height: settings.scaled(250))
+        case .signingIn:
+            return CGSize(width: settings.scaled(480), height: settings.scaled(210))
         case .welcome:
-            return CGSize(width: settings.scaled(480), height: settings.scaled(230))
+            return CGSize(width: settings.scaled(480), height: settings.scaled(190))
         case .concept:
-            return CGSize(width: settings.scaled(520), height: settings.scaled(390))
+            return CGSize(width: settings.scaled(520), height: settings.scaled(345))
         }
     }
 
@@ -136,6 +149,7 @@ struct OnboardingFlowView: View {
         .onAppear {
             applyPanelSize(animated: false)
             registerToggleListener()
+            registerDiveInListener()
             startArrivalSequenceIfNeeded()
         }
         .onChange(of: step) { _, _ in
@@ -151,6 +165,10 @@ struct OnboardingFlowView: View {
             if let token = togglePaletteToken {
                 NotificationCenter.default.removeObserver(token)
                 togglePaletteToken = nil
+            }
+            if let token = diveInToken {
+                NotificationCenter.default.removeObserver(token)
+                diveInToken = nil
             }
         }
     }
@@ -199,8 +217,6 @@ struct OnboardingFlowView: View {
                     .lineSpacing(2)
             }
 
-            Spacer(minLength: 0)
-
             HStack(spacing: 12) {
                 OnboardingPulseKeycap(keys: "⌘ ;")
 
@@ -211,24 +227,29 @@ struct OnboardingFlowView: View {
                 Spacer(minLength: 0)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var hotkeyResolvedContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             headerRow
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("That's the toggle.")
                     .font(.system(size: 20, weight: .semibold))
 
-                Text("⌘ ; brings Resolve up from anywhere — and tucks it away the moment you're done.")
-                    .font(.system(size: 13.5, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .lineSpacing(2)
-            }
+                // The keycap is rendered inline so the user can recognize
+                // ⌘ ; as a command, not just a glyph buried in copy.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    OnboardingPulseKeycap(keys: "⌘ ;", pulses: false)
 
-            Spacer(minLength: 0)
+                    Text("brings Resolve up from anywhere, and tucks it away the moment you're done.")
+                        .font(.system(size: 13.5, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
             HStack {
                 Spacer(minLength: 0)
@@ -237,7 +258,7 @@ struct OnboardingFlowView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var signInContent: some View {
@@ -257,7 +278,7 @@ struct OnboardingFlowView: View {
             OnboardingPrimaryButton(title: "Sign in", keyHint: "⌘ ↵") {
                 authManager.startSignIn()
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.return, modifiers: .command)
 
             HStack(spacing: 6) {
                 Text("New here?")
@@ -268,19 +289,15 @@ struct OnboardingFlowView: View {
                     authManager.startSignIn()
                 }
             }
-
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var signingInContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             headerRow
 
-            Spacer(minLength: 0)
-
-            VStack(spacing: 12) {
+            VStack(spacing: 10) {
                 OnboardingBreathingDot(diameter: 22)
 
                 Text("Finishing up in your browser…")
@@ -292,10 +309,8 @@ struct OnboardingFlowView: View {
                     .foregroundStyle(.tertiary)
             }
             .frame(maxWidth: .infinity)
-
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var welcomeContent: some View {
@@ -311,8 +326,6 @@ struct OnboardingFlowView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 0)
-
             HStack {
                 Spacer(minLength: 0)
                 OnboardingContinueButton(title: "Show me") {
@@ -320,7 +333,7 @@ struct OnboardingFlowView: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private var conceptContent: some View {
@@ -334,7 +347,7 @@ struct OnboardingFlowView: View {
                 ConceptBeatRow(
                     number: "1",
                     title: "Ask anything.",
-                    detail: "Type a question. Strategic, technical, open-ended — anything you'd ask any AI.",
+                    detail: "Type a question. Strategic, technical, or open-ended.",
                     revealed: conceptRevealCount >= 1
                 )
                 ConceptBeatRow(
@@ -351,22 +364,26 @@ struct OnboardingFlowView: View {
                 )
             }
 
-            Spacer(minLength: 0)
-
             HStack(spacing: 12) {
                 ResolveInlineLinkButton("Skip") {
-                    onComplete()
+                    onComplete(false)
                 }
 
                 Spacer(minLength: 0)
 
-                OnboardingPrimaryButton(title: "Try Resolve", keyHint: "⌘ ↵") {
-                    onComplete()
+                // ⌘N is the global "new chat" hotkey owned by KeyboardShortcuts,
+                // so it can't be bound here as a SwiftUI shortcut directly —
+                // the global handler intercepts the chord first. Instead we
+                // listen for `diveInNotification` (posted by that handler) at
+                // the view level and fire `onComplete(true)` when the user
+                // hits ⌘N on the concept step. Clicking the button does the
+                // same thing.
+                OnboardingPrimaryButton(title: "Try Resolve", keyHint: "⌘ N") {
+                    onComplete(true)
                 }
-                .keyboardShortcut(.defaultAction)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .onAppear {
             startConceptReveal()
         }
@@ -459,6 +476,35 @@ struct OnboardingFlowView: View {
             queue: .main
         ) { _ in
             handleTogglePalettePress()
+        }
+    }
+
+    /// ⌘N is the "Try Resolve" / new-chat shortcut at the global level. The
+    /// `KeyboardShortcuts` library posts `diveInNotification` whenever the
+    /// chord fires; we listen here so pressing ⌘N on the concept step is
+    /// equivalent to clicking "Try Resolve" — it completes onboarding and
+    /// drops the user straight into a fresh chat.
+    private func registerDiveInListener() {
+        diveInToken = NotificationCenter.default.addObserver(
+            forName: diveInNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            handleDiveInPress()
+        }
+    }
+
+    private func handleDiveInPress() {
+        // ⌘N is the global "open a new chat" hotkey. After the user is
+        // signed in, pressing it should be equivalent to clicking "Try
+        // Resolve" on the concept step — bypass the rest of onboarding
+        // and drop them straight into a fresh chat. Pressing it during
+        // sign-in / hotkey-teaching beats is intentionally a no-op.
+        switch step {
+        case .welcome, .concept:
+            onComplete(true)
+        default:
+            break
         }
     }
 
@@ -590,6 +636,9 @@ private struct OnboardingPrimaryButton: View {
         }
         .buttonStyle(ResolvePrimaryButtonStyle(isHovering: isHovering))
         .onHover { isHovering = $0 }
+        // Each call site binds its own keyboard shortcut so the keycap
+        // accurately reflects what activates the button (cmd+return for
+        // sign-in, ⌘N for "Try Resolve" via the global new-chat hotkey).
     }
 }
 
@@ -633,7 +682,7 @@ private struct OnboardingContinueButton: View {
 #Preview {
     ZStack {
         Color.black.opacity(0.6)
-        OnboardingFlowView(onComplete: {})
+        OnboardingFlowView(onComplete: { _ in })
             .environmentObject(AuthManager.shared)
     }
     .frame(width: 900, height: 600)

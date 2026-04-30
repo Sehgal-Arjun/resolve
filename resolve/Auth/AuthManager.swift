@@ -23,7 +23,11 @@ final class AuthManager: NSObject, ObservableObject {
     @Published private(set) var state: AuthState = .signedOut
     @Published private(set) var currentUser: ClerkUser?
     @Published private(set) var isAuthenticated: Bool = false
-    @Published private(set) var isLoadingAuth: Bool = false
+    /// Starts `true` so the UI can show a quiet "checking auth" beat at launch
+    /// instead of briefly assuming the user is signed out (which would flash
+    /// the onboarding flow at returning, already-signed-in users before the
+    /// first `refreshAuthState()` resolves).
+    @Published private(set) var isLoadingAuth: Bool = true
     @Published private(set) var userId: String?
 
     private let clientID = "vTNy0mSOUipeN01x"
@@ -116,6 +120,14 @@ final class AuthManager: NSObject, ObservableObject {
 
     func refreshAuthState() async {
         guard !isRefreshingAuth else { return }
+        // Do NOT interrupt an in-progress sign-in. The OS sends
+        // `didBecomeActiveNotification` whenever focus toggles back to
+        // Resolve while the browser sheet is open — if we run a refresh
+        // there, the keychain has no token yet (`handleRedirect` hasn't
+        // exchanged the auth code), so `signOutLocal()` would fire and the
+        // onboarding flow would jump back from "Finishing up in your
+        // browser…" to the sign-in card mid-auth.
+        if case .signingIn = state { return }
         isRefreshingAuth = true
         isLoadingAuth = true
 

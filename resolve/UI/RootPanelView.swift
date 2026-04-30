@@ -22,10 +22,29 @@ struct RootPanelView: View {
         panelController?.isPrimary ?? true
     }
 
+    /// True whenever the user should be looking at the onboarding flow:
+    ///   - they haven't yet completed onboarding (first launch / post sign-out), OR
+    ///   - they're signed-out and not currently mid-auth-refresh (token expired
+    ///     case — fall back to onboarding instead of a separate landing card).
+    /// Critically this is a SINGLE structural branch, so SwiftUI keeps the
+    /// same `OnboardingFlowView` identity across the whole sign-in arc and
+    /// the view's `@State` (step, arrivalDidStart, …) is preserved. Splitting
+    /// onboarding across two `else if` branches caused the view to be
+    /// unmounted and re-mounted whenever auth flags transitioned, which is
+    /// what reset `step` back to `.arrival` and replayed the R animation.
+    private var shouldShowOnboarding: Bool {
+        guard isPrimaryPanel else { return false }
+        if !settings.hasCompletedOnboarding { return true }
+        return !authManager.isAuthenticated && !authManager.isLoadingAuth
+    }
+
     var body: some View {
         Group {
-            if !settings.hasCompletedOnboarding && isPrimaryPanel {
-                OnboardingFlowView(onComplete: {
+            if shouldShowOnboarding {
+                OnboardingFlowView(onComplete: { diveInAfter in
+                    if diveInAfter {
+                        signedInRoute = .main
+                    }
                     settings.hasCompletedOnboarding = true
                 })
             } else if authManager.isAuthenticated, let user = authManager.currentUser {
@@ -68,8 +87,6 @@ struct RootPanelView: View {
                 Text("Signing in...")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-            } else {
-                LandingView()
             }
         }
         .environmentObject(authManager)
@@ -89,6 +106,14 @@ struct RootPanelView: View {
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route
+            } else if case .signedOut = newValue {
+                // Sign-out (or token-expired refresh failure): replay the
+                // onboarding flow on the next render. The `hasCompletedOnboarding`
+                // flag controls whether RootPanelView shows OnboardingFlowView,
+                // so flipping it back to `false` is what makes the R unfurl
+                // animation play again.
+                signedInRoute = .home
+                settings.hasCompletedOnboarding = false
             } else {
                 signedInRoute = .home
             }
