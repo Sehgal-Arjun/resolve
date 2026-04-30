@@ -24,7 +24,11 @@ struct RootPanelView: View {
 
     var body: some View {
         Group {
-            if authManager.isAuthenticated, let user = authManager.currentUser {
+            if !settings.hasCompletedOnboarding && isPrimaryPanel {
+                OnboardingFlowView(onComplete: {
+                    settings.hasCompletedOnboarding = true
+                })
+            } else if authManager.isAuthenticated, let user = authManager.currentUser {
                 switch signedInRoute {
                 case .home:
                     AuthenticatedView(

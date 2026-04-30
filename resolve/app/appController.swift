@@ -59,6 +59,7 @@ final class AppController: ObservableObject {
         // Resolve to the front and show the panels.
         KeyboardShortcuts.onKeyUp(for: .togglePalette) {
             CommandPanelManager.shared.smartToggle()
+            NotificationCenter.default.post(name: togglePaletteUsedNotification, object: nil)
         }
 
         KeyboardShortcuts.onKeyUp(for: .diveIn) {

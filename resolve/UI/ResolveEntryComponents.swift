@@ -3,17 +3,23 @@ import SwiftUI
 struct ResolveLogoMark: View {
     var size: CGFloat = 28
 
+    /// Corner radius and glyph size scale proportionally so the mark looks
+    /// right at any size. At the default 28pt these resolve to ~9pt corner /
+    /// ~13pt glyph (visually identical to the previous fixed values).
+    private var cornerRadius: CGFloat { size * 0.32 }
+    private var glyphSize: CGFloat { size * 0.46 }
+
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.white.opacity(0.06))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
 
             Text("R")
-                .font(.system(size: 13, weight: .semibold))
+                .font(.system(size: glyphSize, weight: .semibold))
                 .foregroundStyle(.primary)
         }
         .frame(width: size, height: size)

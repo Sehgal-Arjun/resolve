@@ -32,8 +32,17 @@ struct PastChatsView: View {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
 
                     Text("Past chats")
                         .font(.system(size: 16, weight: .semibold))

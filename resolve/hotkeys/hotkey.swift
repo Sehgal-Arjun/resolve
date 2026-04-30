@@ -48,3 +48,6 @@ let resolveCustomizableShortcuts: [ShortcutSpec] = [
 let diveInNotification = NSNotification.Name("resolve.diveIn")
 let resolveRoundNotification = NSNotification.Name("resolve.resolveRound")
 let openSettingsNotification = NSNotification.Name("resolve.openSettings")
+/// Posted whenever the toggle-palette shortcut (default ⌘ ;) fires. The
+/// onboarding flow listens for this to detect the hide/show gesture.
+let togglePaletteUsedNotification = NSNotification.Name("resolve.togglePaletteUsed")
