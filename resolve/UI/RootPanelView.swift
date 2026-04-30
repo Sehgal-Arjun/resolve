@@ -16,36 +16,42 @@ struct RootPanelView: View {
     @State private var selectedConversationId: UUID?
     @State private var diveInToken: NSObjectProtocol?
     @State private var openSettingsToken: NSObjectProtocol?
+    /// Runtime "are we currently in the onboarding flow" gate. Independent
+    /// of the persistent `hasCompletedOnboarding` flag — that one tracks
+    /// "has the user ever finished the tour" and never resets after first
+    /// completion. This `@State` is what flips true on every sign-out (so
+    /// the unfurl + sign-in card play again) and false on `onComplete`.
+    @State private var inOnboarding: Bool = !UserSettingsStore.shared.hasCompletedOnboarding
     @Environment(\.resolvePanelController) private var panelController
 
     private var isPrimaryPanel: Bool {
         panelController?.isPrimary ?? true
     }
 
-    /// True whenever the user should be looking at the onboarding flow:
-    ///   - they haven't yet completed onboarding (first launch / post sign-out), OR
-    ///   - they're signed-out and not currently mid-auth-refresh (token expired
-    ///     case — fall back to onboarding instead of a separate landing card).
-    /// Critically this is a SINGLE structural branch, so SwiftUI keeps the
-    /// same `OnboardingFlowView` identity across the whole sign-in arc and
-    /// the view's `@State` (step, arrivalDidStart, …) is preserved. Splitting
-    /// onboarding across two `else if` branches caused the view to be
-    /// unmounted and re-mounted whenever auth flags transitioned, which is
-    /// what reset `step` back to `.arrival` and replayed the R animation.
+    /// True whenever the user should be looking at the onboarding flow.
+    /// Driven entirely by the `inOnboarding` runtime flag so SwiftUI keeps
+    /// the same `OnboardingFlowView` identity across every auth state
+    /// transition mid-flow — that's what prevents the unfurl from replaying
+    /// when state flips through `.signingIn`/`.signedIn`. Whether to enter
+    /// onboarding in the first place is decided at view init (first-time
+    /// user) and on `.signedOut` transitions (sign-out replays the flow).
     private var shouldShowOnboarding: Bool {
-        guard isPrimaryPanel else { return false }
-        if !settings.hasCompletedOnboarding { return true }
-        return !authManager.isAuthenticated && !authManager.isLoadingAuth
+        isPrimaryPanel && inOnboarding
     }
 
     var body: some View {
         Group {
             if shouldShowOnboarding {
                 OnboardingFlowView(onComplete: { diveInAfter in
+                    settings.hasCompletedOnboarding = true
+                    inOnboarding = false
                     if diveInAfter {
                         signedInRoute = .main
+                    } else {
+                        // Reset to home so a user replaying from Settings
+                        // doesn't land back inside Settings after the flow.
+                        signedInRoute = .home
                     }
-                    settings.hasCompletedOnboarding = true
                 })
             } else if authManager.isAuthenticated, let user = authManager.currentUser {
                 switch signedInRoute {
@@ -107,15 +113,24 @@ struct RootPanelView: View {
             if case .signedIn = newValue {
                 // keep current route
             } else if case .signedOut = newValue {
-                // Sign-out (or token-expired refresh failure): replay the
-                // onboarding flow on the next render. The `hasCompletedOnboarding`
-                // flag controls whether RootPanelView shows OnboardingFlowView,
-                // so flipping it back to `false` is what makes the R unfurl
-                // animation play again.
+                // Sign-out replays onboarding. The persistent
+                // `hasCompletedOnboarding` flag stays `true` (so we know
+                // the user has seen the tour before and can skip the
+                // hotkey teaching beat), but `inOnboarding` flips to true
+                // to re-enter the flow.
                 signedInRoute = .home
-                settings.hasCompletedOnboarding = false
+                inOnboarding = true
             } else {
                 signedInRoute = .home
+            }
+        }
+        .onChange(of: settings.hasCompletedOnboarding) { _, newValue in
+            // The "Replay onboarding" button in Settings flips this to
+            // `false`. Re-enter the flow when that happens. The opposite
+            // case (`true` → set by `onComplete`) is already handled
+            // inside the onComplete callback above.
+            if !newValue {
+                inOnboarding = true
             }
         }
         .onAppear {

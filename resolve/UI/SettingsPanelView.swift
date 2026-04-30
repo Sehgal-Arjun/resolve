@@ -516,6 +516,37 @@ struct SettingsPanelView: View {
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                     )
                 }
+
+                SettingsCustomRow(
+                    title: "Replay onboarding",
+                    subtitle: "Play the introductory tour again from the start."
+                ) {
+                    // Flipping the flag is enough — RootPanelView observes
+                    // it via `.onChange` and re-enters the onboarding flow,
+                    // which unmounts this Settings view automatically.
+                    Button {
+                        settings.hasCompletedOnboarding = false
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Replay")
+                                .font(.system(size: 12, weight: .semibold))
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+                }
             }
         }
     }

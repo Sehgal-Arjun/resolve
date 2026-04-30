@@ -436,8 +436,9 @@ struct OnboardingFlowView: View {
     /// Two-phase entrance:
     ///   1. After a short pause on the lone R, advance to `.unfurled`. This
     ///      kicks off the panel-grow morph; the R rides the panel center.
-    ///   2. Once the panel has finished growing, advance to `.hotkey`. Now
-    ///      the R settles into the top-left header and the body fades in.
+    ///   2. Once the panel has finished growing, advance to either `.hotkey`
+    ///      (first-time users — teach them ⌘ ;) or `.signIn` directly
+    ///      (returning users who have already finished the tour).
     private func startArrivalSequenceIfNeeded() {
         guard !arrivalDidStart else { return }
         arrivalDidStart = true
@@ -451,7 +452,13 @@ struct OnboardingFlowView: View {
                 : morphDuration + 0.05
             DispatchQueue.main.asyncAfter(deadline: .now() + unfurlPause) {
                 guard step == .unfurled else { return }
-                advance(to: .hotkey)
+                // Returning users (have already learned ⌘ ;) skip straight
+                // to the sign-in card. First-time users get the teaching.
+                if settings.hasCompletedOnboarding {
+                    advance(to: .signIn)
+                } else {
+                    advance(to: .hotkey)
+                }
             }
         }
     }
@@ -530,7 +537,14 @@ struct OnboardingFlowView: View {
             }
         case .signedIn:
             if step == .signIn || step == .signingIn {
-                advance(to: .welcome)
+                if settings.hasCompletedOnboarding {
+                    // Returning user: they've already seen the welcome and
+                    // concept beats. Bypass them and finish onboarding so
+                    // RootPanelView routes straight to home.
+                    onComplete(false)
+                } else {
+                    advance(to: .welcome)
+                }
             }
         case .signedOut:
             if step == .signingIn {
