@@ -253,7 +253,7 @@ struct OnboardingFlowView: View {
 
             HStack {
                 Spacer(minLength: 0)
-                OnboardingContinueButton(title: "Continue") {
+                OnboardingContinueButton(title: "Continue", keyHint: "⌘ ↵") {
                     advance(to: .signIn)
                 }
             }
@@ -328,7 +328,7 @@ struct OnboardingFlowView: View {
 
             HStack {
                 Spacer(minLength: 0)
-                OnboardingContinueButton(title: "Show me") {
+                OnboardingContinueButton(title: "Show me", keyHint: "⌘ ↵") {
                     advance(to: .concept)
                 }
             }
@@ -598,6 +598,30 @@ private struct ConceptBeatRow: View {
     }
 }
 
+/// Shared keycap visual used by every onboarding CTA. Rendering it through
+/// a single helper keeps the look consistent and lets both button styles
+/// surface their keyboard shortcut to the user — the goal is that a user
+/// never *has* to reach for the trackpad to get through onboarding.
+private struct OnboardingKeycap: View {
+    let keys: String
+
+    var body: some View {
+        Text(keys)
+            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+    }
+}
+
 private struct OnboardingPrimaryButton: View {
     let title: String
     let keyHint: String?
@@ -619,18 +643,7 @@ private struct OnboardingPrimaryButton: View {
                 Spacer(minLength: 0)
 
                 if let keyHint {
-                    Text(keyHint)
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                        )
+                    OnboardingKeycap(keys: keyHint)
                 }
             }
         }
@@ -645,23 +658,33 @@ private struct OnboardingPrimaryButton: View {
 /// Lighter-weight CTA used on transitional beats (hotkey-resolved, welcome).
 /// Distinct from `OnboardingPrimaryButton` so the visual hierarchy stays clear:
 /// primary buttons fill width and look "decisive"; continue buttons are a soft
-/// pill in the bottom-right.
+/// pill in the bottom-right. Both surface their keyboard shortcut via the
+/// shared `OnboardingKeycap` so the whole flow is keyboard-navigable.
 private struct OnboardingContinueButton: View {
     let title: String
+    let keyHint: String?
     let action: () -> Void
 
     @ObservedObject private var settings = UserSettingsStore.shared
     @State private var isHovering = false
 
+    init(title: String, keyHint: String? = nil, action: @escaping () -> Void) {
+        self.title = title
+        self.keyHint = keyHint
+        self.action = action
+    }
+
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: 8) {
                 Text(title)
-                Image(systemName: "arrow.right")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                if let keyHint {
+                    OnboardingKeycap(keys: keyHint)
+                }
             }
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.primary)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
             .background(
@@ -675,7 +698,9 @@ private struct OnboardingContinueButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovering = $0 }
-        .keyboardShortcut(.return)
+        // Cmd+return matches the primary-button shortcut (Sign in), so the
+        // user has one consistent "advance" chord across the whole flow.
+        .keyboardShortcut(.return, modifiers: .command)
     }
 }
 
