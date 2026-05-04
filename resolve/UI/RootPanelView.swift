@@ -29,14 +29,21 @@ struct RootPanelView: View {
     }
 
     /// True whenever the user should be looking at the onboarding flow.
-    /// Driven entirely by the `inOnboarding` runtime flag so SwiftUI keeps
-    /// the same `OnboardingFlowView` identity across every auth state
-    /// transition mid-flow — that's what prevents the unfurl from replaying
-    /// when state flips through `.signingIn`/`.signedIn`. Whether to enter
-    /// onboarding in the first place is decided at view init (first-time
-    /// user) and on `.signedOut` transitions (sign-out replays the flow).
+    /// Two ways onboarding can become active:
+    ///   1. `inOnboarding` is explicitly set true (first launch with a
+    ///      pending tour, or after an in-session sign-out / Replay tap).
+    ///      This is the path that keeps `OnboardingFlowView` mounted through
+    ///      the entire sign-in arc, so the unfurl doesn't replay mid-flow.
+    ///   2. The user is unambiguously signed-out (not authenticated AND not
+    ///      loading) — this catches relaunches with no/expired tokens, where
+    ///      `inOnboarding` initialized to `false` because the persistent
+    ///      `hasCompletedOnboarding` flag is true. Without this fallback,
+    ///      RootPanelView's body would render nothing and the user would
+    ///      see a transparent panel after pressing ⌘ ;.
     private var shouldShowOnboarding: Bool {
-        isPrimaryPanel && inOnboarding
+        guard isPrimaryPanel else { return false }
+        if inOnboarding { return true }
+        return !authManager.isAuthenticated && !authManager.isLoadingAuth
     }
 
     var body: some View {

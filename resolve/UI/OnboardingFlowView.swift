@@ -26,6 +26,11 @@ struct OnboardingFlowView: View {
         case signingIn        // browser sheet open, breathing dot
         case welcome          // post-auth "Welcome, [name]"
         case concept          // three-beat product explainer
+        case questionPicker   // pick a fun pre-baked question
+        case demoState1       // canned chat: 3-2 disagreement
+        case demoState2       // canned chat: 4-1 after first ⌘⇧R
+        case demoState3       // canned chat: 5-0 consensus
+        case cheatSheet       // keyboard shortcuts grid + Continue
     }
 
     /// Called when the user finishes (or skips) onboarding. The Bool is
@@ -40,8 +45,49 @@ struct OnboardingFlowView: View {
     @State private var step: Step = .arrival
     @State private var togglePaletteToken: NSObjectProtocol?
     @State private var diveInToken: NSObjectProtocol?
+    @State private var resolveRoundToken: NSObjectProtocol?
     @State private var conceptRevealCount: Int = 0
     @State private var arrivalDidStart: Bool = false
+
+    /// The set of pre-baked questions surfaced in `.questionPicker`. Picked
+    /// once per onboarding run from `OnboardingDemoData.allQuestions` so the
+    /// picker feels fresh on every replay.
+    @State private var availableQuestions: [OnboardingDemoQuestion] = OnboardingDemoData.randomSelection(count: 5)
+    /// Index into `availableQuestions` once the user has chosen one. Drives
+    /// which question's pre-baked states get rendered in the demo chat, and
+    /// which row in the picker carries the matchedGeometryEffect into the
+    /// `lastSentText` panel.
+    @State private var selectedQuestionIndex: Int? = nil
+    /// True for ~3 seconds after the user fires a resolve round, so the
+    /// pulse goes quiet for a beat before resuming. Reset on entry to a
+    /// fresh demo state.
+    @State private var resolvePulseSuppressed: Bool = false
+    /// True while the canned 1-second "advocates are debating" beat is
+    /// playing, between a resolve press and the next state actually
+    /// landing. Makes the demo feel like a real round-trip.
+    @State private var demoIsResolving: Bool = false
+    /// Which advocate card the user has clicked open in the drawer, if any.
+    /// `nil` means the drawer is closed and the panel renders at base width.
+    @State private var selectedDemoAdvocate: AdvocateProvider? = nil
+    /// Vertical offset applied to the cheat-sheet content during the
+    /// cheat sheet → home morph. As the panel's top edge moves up to make
+    /// room for the home view's welcome heading + Get started + links,
+    /// the cheat sheet's content shifts DOWN by the same amount via this
+    /// offset — net result: the shortcuts grid stays at exactly the same
+    /// screen position throughout the morph instead of riding the panel up.
+    @State private var cheatSheetTopOffset: CGFloat = 0
+    /// Flips true at the start of the cheat sheet → home morph. Fades out
+    /// the cheat sheet's logo + intro + Continue button so when the home
+    /// view mounts (with its different header content), the only thing
+    /// visible during the swap is the shortcuts grid — which lines up
+    /// pixel-for-pixel with the home view's shortcuts grid.
+    @State private var cheatSheetIsTransitioning: Bool = false
+
+    /// Shared namespace for the question text's morph from picker → demo
+    /// chat `lastSentText`. Each question's row uses `id: question.id`, and
+    /// the demo chat's question Text uses the same id once `selectedQuestion`
+    /// is set, so SwiftUI animates the text between the two layouts.
+    @Namespace private var questionMorph
 
     private let cardCornerRadius: CGFloat = 16
     /// Single source of truth for the morph duration. The SwiftUI `.frame`
@@ -71,7 +117,29 @@ struct OnboardingFlowView: View {
             return CGSize(width: settings.scaled(480), height: settings.scaled(190))
         case .concept:
             return CGSize(width: settings.scaled(520), height: settings.scaled(345))
+        case .questionPicker:
+            return CGSize(width: settings.scaled(540), height: settings.scaled(390))
+        case .demoState1, .demoState2, .demoState3:
+            // Drawer adds 260pt to the right when an advocate card is open.
+            let demoBaseWidth: CGFloat = 760
+            let demoDrawerWidth: CGFloat = 260
+            let totalWidth = demoBaseWidth + (selectedDemoAdvocate != nil ? demoDrawerWidth : 0)
+            return CGSize(width: settings.scaled(totalWidth), height: settings.scaled(490))
+        case .cheatSheet:
+            return CGSize(width: settings.scaled(520), height: settings.scaled(310))
         }
+    }
+
+    /// Anchor used for panel size morphs. Most steps grow centered; the
+    /// final cheat sheet → home transition wants the bottom edge anchored
+    /// so the panel grows upward into the home view's territory.
+    private var panelAnchor: CommandPanelFrameAnchor {
+        // Continue from cheat sheet calls onComplete which unmounts this
+        // view. The home view's onAppear fires its own setSize. Anchoring
+        // *that* setSize to .bottomCenter is what makes the panel grow up
+        // — handled in AuthenticatedView. Here all of onboarding uses the
+        // central, "unfurl outward" anchor.
+        .center
     }
 
     private let contentPadding: CGFloat = 22
@@ -150,10 +218,16 @@ struct OnboardingFlowView: View {
             applyPanelSize(animated: false)
             registerToggleListener()
             registerDiveInListener()
+            registerResolveRoundListener()
             startArrivalSequenceIfNeeded()
         }
         .onChange(of: step) { _, _ in
             applyPanelSize(animated: !settings.reducedMotion)
+        }
+        .onChange(of: selectedDemoAdvocate) { _, _ in
+            // Drawer width snaps without animation — same feel as the
+            // real chat panel's drawer toggle.
+            applyPanelSize(animated: false)
         }
         .onChange(of: authManager.state) { _, newValue in
             handleAuthStateChange(newValue)
@@ -169,6 +243,10 @@ struct OnboardingFlowView: View {
             if let token = diveInToken {
                 NotificationCenter.default.removeObserver(token)
                 diveInToken = nil
+            }
+            if let token = resolveRoundToken {
+                NotificationCenter.default.removeObserver(token)
+                resolveRoundToken = nil
             }
         }
     }
@@ -198,6 +276,15 @@ struct OnboardingFlowView: View {
                 .transition(.opacity)
         case .concept:
             conceptContent
+                .transition(.opacity)
+        case .questionPicker:
+            questionPickerContent
+                .transition(.opacity)
+        case .demoState1, .demoState2, .demoState3:
+            demoChatContent
+                .transition(.opacity)
+        case .cheatSheet:
+            cheatSheetContent
                 .transition(.opacity)
         }
     }
@@ -365,22 +452,21 @@ struct OnboardingFlowView: View {
             }
 
             HStack(spacing: 12) {
-                ResolveInlineLinkButton("Skip") {
+                ResolveInlineLinkButton("Skip tutorial") {
                     onComplete(false)
                 }
 
                 Spacer(minLength: 0)
 
-                // ⌘N is the global "new chat" hotkey owned by KeyboardShortcuts,
-                // so it can't be bound here as a SwiftUI shortcut directly —
-                // the global handler intercepts the chord first. Instead we
-                // listen for `diveInNotification` (posted by that handler) at
-                // the view level and fire `onComplete(true)` when the user
-                // hits ⌘N on the concept step. Clicking the button does the
-                // same thing.
-                OnboardingPrimaryButton(title: "Try Resolve", keyHint: "⌘ N") {
-                    onComplete(true)
+                // Continue advances into the canned demo (question picker
+                // → demo chat → cheat sheet → home). ⌘N still works as a
+                // hard skip into a real chat (handled by the global
+                // diveInNotification listener), but the natural advance
+                // chord is cmd+return.
+                OnboardingPrimaryButton(title: "Continue", keyHint: "⌘ ↵") {
+                    advance(to: .questionPicker)
                 }
+                .keyboardShortcut(.return, modifiers: .command)
             }
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -403,6 +489,529 @@ struct OnboardingFlowView: View {
                 .foregroundStyle(.primary)
 
             Spacer(minLength: 0)
+        }
+    }
+
+    /// "Skip tutorial" link rendered top-right on the demo beats. Calls
+    /// `onComplete(false)` so the user lands on the home screen, exactly
+    /// like the Skip link on the concept page.
+    private var skipTutorialLink: some View {
+        ResolveInlineLinkButton("Skip tutorial") {
+            onComplete(false)
+        }
+    }
+
+    /// Header row variant that sits the wordmark on the left and the
+    /// "Skip tutorial" link on the far right. Used on every demo beat.
+    private var headerRowWithSkip: some View {
+        HStack(spacing: 10) {
+            Color.clear
+                .frame(width: headerLogoSize, height: headerLogoSize)
+
+            Text("Resolve")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Spacer(minLength: 0)
+
+            skipTutorialLink
+        }
+    }
+
+    // MARK: - Question picker
+
+    private var selectedQuestion: OnboardingDemoQuestion? {
+        guard let idx = selectedQuestionIndex,
+              availableQuestions.indices.contains(idx) else { return nil }
+        return availableQuestions[idx]
+    }
+
+    private var questionPickerContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            headerRowWithSkip
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Pick a question.")
+                    .font(.system(size: 20, weight: .semibold))
+
+                Text("Try a real Resolve round on something fun. Press the keycap or click a row.")
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 6) {
+                ForEach(Array(availableQuestions.enumerated()), id: \.element.id) { idx, question in
+                    OnboardingQuestionRow(
+                        question: question,
+                        keycap: "⌘ \(idx + 1)",
+                        morphNamespace: questionMorph
+                    ) {
+                        pickQuestion(at: idx)
+                    }
+                    .keyboardShortcut(Self.numberShortcut(for: idx), modifiers: .command)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    private func pickQuestion(at index: Int) {
+        guard step == .questionPicker else { return }
+        guard availableQuestions.indices.contains(index) else { return }
+        selectedQuestionIndex = index
+        // resolvePulseSuppressed is reset to false (default); state 1
+        // begins with the resolve button pulsing immediately.
+        resolvePulseSuppressed = false
+        demoIsResolving = false
+        selectedDemoAdvocate = nil
+        advance(to: .demoState1)
+    }
+
+    /// Static lookup for ⌘1–⌘9 shortcuts. Building `KeyEquivalent` from
+    /// an interpolated string isn't reliable across Swift versions; using
+    /// character literals here keeps the compiler happy and gives us a
+    /// hard cap (any picker beyond 9 entries would fail loudly).
+    private static let numberKeys: [KeyEquivalent] = [
+        KeyEquivalent("1"), KeyEquivalent("2"), KeyEquivalent("3"),
+        KeyEquivalent("4"), KeyEquivalent("5"), KeyEquivalent("6"),
+        KeyEquivalent("7"), KeyEquivalent("8"), KeyEquivalent("9")
+    ]
+
+    private static func numberShortcut(for index: Int) -> KeyEquivalent {
+        guard numberKeys.indices.contains(index) else { return KeyEquivalent("0") }
+        return numberKeys[index]
+    }
+
+    // MARK: - Demo chat
+
+    /// Live state being rendered in the demo chat (advocates, arbiter
+    /// summary, classifier groups). Returns nil on non-demo steps.
+    private var currentDemoState: OnboardingDemoState? {
+        guard let question = selectedQuestion else { return nil }
+        let stateIndex: Int
+        switch step {
+        case .demoState1: stateIndex = 0
+        case .demoState2: stateIndex = 1
+        case .demoState3: stateIndex = 2
+        default: return nil
+        }
+        guard question.states.indices.contains(stateIndex) else { return nil }
+        return question.states[stateIndex]
+    }
+
+    private var demoRoundNumber: Int {
+        switch step {
+        case .demoState1: return 1
+        case .demoState2: return 2
+        case .demoState3: return 3
+        default: return 1
+        }
+    }
+
+    private var demoCanResolve: Bool {
+        // Resolve is disabled at consensus AND while the 1s loading beat
+        // is playing — preventing back-to-back ⌘⇧R presses from racing.
+        (step == .demoState1 || step == .demoState2) && !demoIsResolving
+    }
+
+    private var demoResolvePulseActive: Bool {
+        demoCanResolve && !resolvePulseSuppressed
+    }
+
+    private var demoResolveCaption: String {
+        if demoIsResolving {
+            return "Advocates are debating…"
+        }
+        switch step {
+        case .demoState1, .demoState2:
+            return "Models disagree — press ⌘⇧R to ask the arbiter to resolve."
+        case .demoState3:
+            return "Consensus reached. Press ⌘ ↵ to continue."
+        default:
+            return ""
+        }
+    }
+
+    @ViewBuilder
+    private var demoChatContent: some View {
+        if let question = selectedQuestion, let state = currentDemoState {
+            VStack(alignment: .leading, spacing: 12) {
+                headerRowWithSkip
+
+                HStack(alignment: .top, spacing: 12) {
+                    demoLeftColumn(question: question, state: state)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+                    demoRightColumn(state: state)
+                        .frame(width: settings.scaled(230))
+
+                    if let selected = selectedDemoAdvocate,
+                       let advocate = state.advocates.first(where: { $0.provider == selected }) {
+                        demoDrawer(for: advocate)
+                            .frame(width: settings.scaled(260))
+                    }
+                }
+
+                HStack(alignment: .center, spacing: 12) {
+                    Text(demoResolveCaption)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(demoCanResolve ? settings.resolvedAccentColor.opacity(0.85) : Color.secondary)
+                        .opacity(demoResolveCaption.isEmpty ? 0 : 1)
+
+                    Spacer(minLength: 0)
+
+                    // Continue is only offered once consensus is reached.
+                    // States 1 + 2 expect ⌘⇧R; the caption above tells the
+                    // user that. State 3 swaps in this button so users who
+                    // prefer clicks have a visible target.
+                    if step == .demoState3 {
+                        OnboardingContinueButton(title: "Continue", keyHint: "⌘ ↵") {
+                            advance(to: .cheatSheet)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            Color.clear
+        }
+    }
+
+    private func demoDrawer(for advocate: OnboardingDemoAdvocate) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(advocate.provider.displayName)
+                    .font(.system(size: 14, weight: .semibold))
+
+                Spacer()
+
+                Button {
+                    selectedDemoAdvocate = nil
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 12, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                        .fill(Color.white.opacity(0.08))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+            }
+
+            Text("Detailed reasoning")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            ScrollView {
+                Text(advocate.detailedReasoning)
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .lineSpacing(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .frame(maxHeight: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
+                .fill(Color.white.opacity(0.06))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
+    }
+
+    private func demoLeftColumn(question: OnboardingDemoQuestion, state: OnboardingDemoState) -> some View {
+        VStack(spacing: 12) {
+            lastSentPanel(question: question)
+
+            Divider()
+                .overlay(Color.white.opacity(0.10))
+
+            HStack(spacing: 8) {
+                Text("Arbiter's Summary")
+                    .font(.system(size: 13, weight: .semibold))
+
+                Spacer()
+
+                Text("\(demoRoundNumber)/3 rounds")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                OnboardingPulsingResolveButton(
+                    isPulsing: demoResolvePulseActive,
+                    isEnabled: demoCanResolve,
+                    cornerRadius: settings.cornerRadius(9),
+                    accentColor: settings.resolvedAccentColor
+                ) {
+                    triggerDemoResolve()
+                }
+            }
+
+            // While the 1-second loading beat plays we swap the arbiter
+            // summary out for a spinner — same pattern the real chat uses
+            // between resolve rounds. Makes the demo feel like a real
+            // round-trip even though the next state is pre-baked.
+            if demoIsResolving {
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.regular)
+
+                    Text("Advocates are debating…")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    Text(arbiterAttributedString(state.arbiterSummary))
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.bottom, 8)
+                }
+            }
+        }
+    }
+
+    private func demoRightColumn(state: OnboardingDemoState) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Spacer()
+                Text("General Question")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(state.advocates, id: \.provider) { advocate in
+                        Button {
+                            toggleDemoAdvocate(advocate.provider)
+                        } label: {
+                            OnboardingDemoAdvocateCard(
+                                advocate: advocate,
+                                stanceColor: stanceColor(for: advocate.provider, in: state.classifierGroups),
+                                isSelected: selectedDemoAdvocate == advocate.provider,
+                                isLoading: demoIsResolving,
+                                cornerRadius: settings.cornerRadius(10),
+                                selectionTint: settings.resolvedAccentColor
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxHeight: .infinity)
+        }
+    }
+
+    private func toggleDemoAdvocate(_ provider: AdvocateProvider) {
+        if selectedDemoAdvocate == provider {
+            selectedDemoAdvocate = nil
+        } else {
+            selectedDemoAdvocate = provider
+        }
+    }
+
+    private func lastSentPanel(question: OnboardingDemoQuestion) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "sparkles")
+                .foregroundStyle(.secondary)
+
+            Text("\(question.emoji)  \(question.title)")
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .matchedGeometryEffect(id: question.id, in: questionMorph)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
+                .fill(Color.white.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: settings.cornerRadius(12), style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
+    }
+
+    /// Maps an advocate to its stance color based on the current state's
+    /// classifier groups. First group gets the first palette color,
+    /// second gets the second, etc. — same convention as the real chat.
+    private func stanceColor(for provider: AdvocateProvider, in groups: [OnboardingDemoStanceGroup]) -> Color? {
+        let key = provider.backendKey
+        let palette = settings.stancePalette.colors
+        for (idx, group) in groups.enumerated() {
+            if group.members.contains(key) {
+                return palette[idx % palette.count]
+            }
+        }
+        return nil
+    }
+
+    /// Tiny markdown-ish parser for the canned arbiter summaries — supports
+    /// **bold** segments only (everything else is plain). We don't reuse the
+    /// real chat's parser because that pulls in the whole resolve text
+    /// pipeline; for ~5 hard-coded strings, this is enough.
+    private func arbiterAttributedString(_ text: String) -> AttributedString {
+        var result = AttributedString()
+        var remaining = text[...]
+        var bold = false
+        while let range = remaining.range(of: "**") {
+            let chunk = remaining[remaining.startIndex..<range.lowerBound]
+            var segment = AttributedString(String(chunk))
+            if bold {
+                segment.font = .system(size: 14, weight: .semibold)
+            }
+            result += segment
+            remaining = remaining[range.upperBound...]
+            bold.toggle()
+        }
+        var tail = AttributedString(String(remaining))
+        if bold {
+            tail.font = .system(size: 14, weight: .semibold)
+        }
+        result += tail
+        return result
+    }
+
+    private func triggerDemoResolve() {
+        guard demoCanResolve else { return }
+        let nextStep: Step
+        switch step {
+        case .demoState1: nextStep = .demoState2
+        case .demoState2: nextStep = .demoState3
+        default: return
+        }
+
+        // Pretend we're hitting an API: spinner for 1s, then advance to
+        // the next pre-baked state. Keeps the demo feeling alive instead
+        // of snapping instantly between states.
+        demoIsResolving = true
+        resolvePulseSuppressed = true
+
+        let resolveDelay: Double = settings.reducedMotion ? 0.0 : 1.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + resolveDelay) {
+            demoIsResolving = false
+            advance(to: nextStep)
+
+            // Pulse stays quiet for another 2s after the new state lands
+            // (3s total from button press), so the user gets a beat to
+            // read the result before the button starts pulsing again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                resolvePulseSuppressed = false
+            }
+        }
+    }
+
+    // MARK: - Cheat sheet
+
+    private var cheatSheetContent: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            headerRowWithSkip
+                .opacity(cheatSheetIsTransitioning ? 0 : 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Your keyboard cheat sheet.")
+                    .font(.system(size: 18, weight: .semibold))
+
+                Text("Resolve is fastest from the keyboard. Here's everything you'll use.")
+                    .font(.system(size: 12.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+            .opacity(cheatSheetIsTransitioning ? 0 : 1)
+
+            // Shortcut rows stay visible through the morph — they're the
+            // anchor that the home view's shortcuts will land on.
+            VStack(spacing: 6) {
+                OnboardingShortcutRow(label: "Toggle visibility", keys: "⌘ ;")
+                OnboardingShortcutRow(label: "Get started / new chat", keys: "⌘ N")
+                OnboardingShortcutRow(label: "Resolve", keys: "⌘ ⇧ R")
+                OnboardingShortcutRow(label: "New instance", keys: "⌘ ⇧ N")
+                OnboardingShortcutRow(label: "Settings", keys: "⌘ ,")
+            }
+
+            HStack {
+                Spacer(minLength: 0)
+                OnboardingContinueButton(title: "Continue", keyHint: "⌘ ↵") {
+                    transitionFromCheatSheetToHome()
+                }
+            }
+            .opacity(cheatSheetIsTransitioning ? 0 : 1)
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        // `.offset` translates the rendered view without affecting layout.
+        // As the panel's top edge moves up during the morph, this offset
+        // pushes the cheat-sheet content the same amount DOWN, so the
+        // shortcuts grid (and everything else) stays still on screen.
+        .offset(y: cheatSheetTopOffset)
+    }
+
+    private func transitionFromCheatSheetToHome() {
+        // Cheat sheet → home morph anchored on the keyboard-shortcuts grid.
+        //
+        // Two synchronized animations make this work:
+        //
+        //   1. The AppKit panel grows asymmetrically — top edge up to make
+        //      room for the home view's header + Get started + links area;
+        //      bottom edge down to match the home view's natural padding.
+        //      Anchor pegs `cheatSheetShortcutsY` (in old layout) to
+        //      `homeShortcutsY` (in new layout) so a fixed point in the
+        //      panel's content stays at the same screen y.
+        //
+        //   2. SwiftUI side-effect: the cheat sheet's content gets pushed
+        //      DOWN by exactly the amount the panel top moves UP. Result:
+        //      every visible element of the cheat sheet stays at the same
+        //      screen y throughout the morph instead of riding the panel
+        //      upward. The header / intro / Continue button fade out, and
+        //      the shortcut rows stay perfectly still — landing exactly on
+        //      top of the home view's shortcut rows when AuthenticatedView
+        //      mounts after the morph completes.
+        //
+        // The two Y values are measured (approximately) from each panel's
+        // top edge to the top of the shortcut rows. They scale with the
+        // panel-size setting so the morph works at every panel size.
+        let homeSize = CGSize(width: settings.scaled(520), height: settings.scaled(410))
+        let cheatSheetShortcutsY: CGFloat = settings.scaled(120)
+        let homeShortcutsY: CGFloat = settings.scaled(178)
+        let topOffsetDelta: CGFloat = homeShortcutsY - cheatSheetShortcutsY
+
+        // Kick off the AppKit panel resize.
+        CommandPanelController.shared.setSize(
+            width: homeSize.width,
+            height: homeSize.height,
+            animated: !settings.reducedMotion,
+            duration: morphDuration,
+            anchor: .anchorTopFromContent(currentY: cheatSheetShortcutsY, newY: homeShortcutsY)
+        )
+
+        // Drive the SwiftUI side at the same duration + curve as the
+        // panel resize, so the offset compensation stays in lockstep
+        // with the panel top moving up.
+        if settings.reducedMotion {
+            cheatSheetTopOffset = topOffsetDelta
+            cheatSheetIsTransitioning = true
+        } else {
+            withAnimation(.easeInOut(duration: morphDuration)) {
+                cheatSheetTopOffset = topOffsetDelta
+                cheatSheetIsTransitioning = true
+            }
+        }
+
+        // After the morph completes, swap to the home view. The panel is
+        // already at home dimensions, so AuthenticatedView's onAppear
+        // setSize is a no-op — the view just mounts in place.
+        let delay = settings.reducedMotion ? 0.0 : morphDuration
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            onComplete(false)
         }
     }
 
@@ -502,16 +1111,29 @@ struct OnboardingFlowView: View {
     }
 
     private func handleDiveInPress() {
-        // ⌘N is the global "open a new chat" hotkey. After the user is
-        // signed in, pressing it should be equivalent to clicking "Try
-        // Resolve" on the concept step — bypass the rest of onboarding
-        // and drop them straight into a fresh chat. Pressing it during
-        // sign-in / hotkey-teaching beats is intentionally a no-op.
+        // ⌘N is the global "open a new chat" hotkey. Once the user is
+        // signed in (welcome onward), pressing it bypasses the rest of
+        // onboarding and drops them into a fresh chat. Pre-sign-in
+        // beats and the demo-internal beats explicitly do nothing — the
+        // demo has its own progression chord (⌘⇧R / ⌘ ↵).
         switch step {
-        case .welcome, .concept:
+        case .welcome, .concept, .cheatSheet:
             onComplete(true)
         default:
             break
+        }
+    }
+
+    /// ⌘⇧R is the global "Resolve" hotkey. We listen for it in the demo
+    /// states so pressing the chord (or clicking the button — both end
+    /// up here via the same path) advances the canned conversation.
+    private func registerResolveRoundListener() {
+        resolveRoundToken = NotificationCenter.default.addObserver(
+            forName: resolveRoundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            triggerDemoResolve()
         }
     }
 
@@ -633,6 +1255,195 @@ private struct OnboardingKeycap: View {
                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
+    }
+}
+
+/// One row in the question picker. Keycap on the left, emoji + question
+/// title on the right. The title carries the matchedGeometryEffect so it
+/// can morph into the demo chat's `lastSentText` when picked.
+private struct OnboardingQuestionRow: View {
+    let question: OnboardingDemoQuestion
+    let keycap: String
+    let morphNamespace: Namespace.ID
+    let action: () -> Void
+
+    @ObservedObject private var settings = UserSettingsStore.shared
+    @State private var isHovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                OnboardingKeycap(keys: keycap)
+
+                Text(question.emoji)
+                    .font(.system(size: 16))
+
+                Text(question.title)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.primary)
+                    .matchedGeometryEffect(id: question.id, in: morphNamespace)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
+                    .fill(Color.white.opacity(isHovering ? 0.10 : 0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
+                    .strokeBorder(Color.white.opacity(isHovering ? 0.16 : 0.10), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+    }
+}
+
+/// Resolve button as it appears in the demo. Pulses (scale + accent glow)
+/// when `isPulsing` is true. The keycap inside matches the global ⌘⇧R
+/// hotkey that the user can press to fire it. Disabled (no pulse, dimmed)
+/// once consensus is reached.
+private struct OnboardingPulsingResolveButton: View {
+    let isPulsing: Bool
+    let isEnabled: Bool
+    let cornerRadius: CGFloat
+    let accentColor: Color
+    let action: () -> Void
+
+    @ObservedObject private var settings = UserSettingsStore.shared
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var pulseGlow: Double = 0.0
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Text("Resolve")
+                    .font(.system(size: 12, weight: .semibold))
+
+                OnboardingKeycap(keys: "⌘ ⇧ R")
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(accentColor.opacity(isEnabled ? 0.20 : 0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(accentColor.opacity(isEnabled ? (0.40 + pulseGlow) : 0.12), lineWidth: 1)
+            )
+            .shadow(color: accentColor.opacity(pulseGlow), radius: CGFloat(pulseGlow) * 24)
+        }
+        .buttonStyle(.plain)
+        .scaleEffect(pulseScale)
+        .opacity(isEnabled ? 1.0 : 0.55)
+        .disabled(!isEnabled)
+        // ⌘⇧R fires the action via the global resolveRoundNotification
+        // listener in OnboardingFlowView; no SwiftUI shortcut here would
+        // win against the KeyboardShortcuts library anyway.
+        .onAppear {
+            applyPulse(active: isPulsing)
+        }
+        .onChange(of: isPulsing) { _, newValue in
+            applyPulse(active: newValue)
+        }
+    }
+
+    private func applyPulse(active: Bool) {
+        if active && !settings.reducedMotion {
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseScale = 1.05
+                pulseGlow = 0.45
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.25)) {
+                pulseScale = 1.0
+                pulseGlow = 0.0
+            }
+        }
+    }
+}
+
+/// Compact advocate "thesis card" used in the demo chat. Mirrors the visual
+/// of `AdvocateThesisCardView` from the real chat — provider name + summary
+/// + a colored stance capsule when the classifier groups have placed this
+/// advocate in a stance. Clickable: tapping toggles the detail drawer.
+private struct OnboardingDemoAdvocateCard: View {
+    let advocate: OnboardingDemoAdvocate
+    let stanceColor: Color?
+    let isSelected: Bool
+    let isLoading: Bool
+    let cornerRadius: CGFloat
+    let selectionTint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(advocate.provider.displayName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                Spacer(minLength: 8)
+
+                if let stanceColor {
+                    Capsule(style: .continuous)
+                        .fill(stanceColor.opacity(0.85))
+                        .frame(width: 60, height: 3)
+                }
+            }
+
+            Text(advocate.summary)
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.primary)
+                .lineLimit(4)
+                .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .fill(Color.white.opacity(0.07))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .strokeBorder(
+                    isSelected ? selectionTint.opacity(0.55) : Color.white.opacity(0.10),
+                    lineWidth: 1
+                )
+        )
+        .overlay(alignment: .trailing) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.mini)
+                    .padding(.trailing, 10)
+            }
+        }
+        .opacity(isLoading ? 0.65 : 1.0)
+    }
+}
+
+/// One row of the cheat-sheet keyboard shortcuts grid. Visual matches
+/// `AuthenticatedView`'s ShortcutRow so the cheat-sheet beat is
+/// pixel-similar to the home screen's shortcuts section it eventually
+/// becomes.
+private struct OnboardingShortcutRow: View {
+    let label: String
+    let keys: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(.system(size: 12.5, weight: .regular))
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 0)
+
+            OnboardingKeycap(keys: keys)
+        }
     }
 }
 

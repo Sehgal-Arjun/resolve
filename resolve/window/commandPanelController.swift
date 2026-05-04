@@ -5,10 +5,20 @@ import SwiftUI
 /// sites (chat phase changes, landing/welcome cards) want the top edge fixed
 /// — the panel reveals new content downward. Onboarding's first-launch reveal
 /// wants the panel's center fixed so it feels like the surface is unfurling
-/// outward in every direction.
+/// outward in every direction. The cheat-sheet → home morph at the end of
+/// onboarding pins a specific Y position from the panel top so a chunk of
+/// shared content (the keyboard shortcuts grid) stays at the same screen y
+/// while the panel grows around it.
 enum CommandPanelFrameAnchor {
     case topCenter
     case center
+    case bottomCenter
+    /// Pin a Y position (measured down from the panel top) so it stays at
+    /// the same screen y across the resize. `currentY` is the offset in the
+    /// CURRENT panel layout; `newY` is the offset in the NEW panel layout.
+    /// The panel can grow or shrink in either direction asymmetrically as
+    /// needed to keep that point fixed visually.
+    case anchorTopFromContent(currentY: CGFloat, newY: CGFloat)
 }
 
 @MainActor
@@ -177,6 +187,25 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         case .center:
             newFrame.origin.y -= deltaHeight / 2
             newFrame.origin.x -= deltaWidth / 2
+        case .bottomCenter:
+            // In AppKit the origin is the bottom-left corner. Leaving
+            // origin.y untouched holds the bottom edge in place; the panel
+            // grows or shrinks purely upward.
+            newFrame.origin.x -= deltaWidth / 2
+        case .anchorTopFromContent(let currentY, let newY):
+            // Geometry: in AppKit, top = origin.y + height (origin from
+            // screen bottom). The point at `currentY` from the panel top
+            // sits at AppKit y = currentTop - currentY. We want the same
+            // point in the new panel — i.e., newTop - newY — to land at
+            // the same screen y. Solving newTop - newY == currentTop - currentY:
+            //   newOrigin.y + height - newY = currentOrigin.y + currentHeight - currentY
+            //   newOrigin.y = currentOrigin.y + currentHeight - height - currentY + newY
+            newFrame.origin.x -= deltaWidth / 2
+            newFrame.origin.y = currentFrame.origin.y
+                + currentFrame.size.height
+                - height
+                - currentY
+                + newY
         }
         newFrame.size.height = height
         newFrame.size.width = width
