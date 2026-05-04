@@ -16,15 +16,51 @@ struct RootPanelView: View {
     @State private var selectedConversationId: UUID?
     @State private var diveInToken: NSObjectProtocol?
     @State private var openSettingsToken: NSObjectProtocol?
+    /// Runtime "are we currently in the onboarding flow" gate. Independent
+    /// of the persistent `hasCompletedOnboarding` flag — that one tracks
+    /// "has the user ever finished the tour" and never resets after first
+    /// completion. This `@State` is what flips true on every sign-out (so
+    /// the unfurl + sign-in card play again) and false on `onComplete`.
+    @State private var inOnboarding: Bool = !UserSettingsStore.shared.hasCompletedOnboarding
     @Environment(\.resolvePanelController) private var panelController
 
     private var isPrimaryPanel: Bool {
         panelController?.isPrimary ?? true
     }
 
+    /// True whenever the user should be looking at the onboarding flow.
+    /// Two ways onboarding can become active:
+    ///   1. `inOnboarding` is explicitly set true (first launch with a
+    ///      pending tour, or after an in-session sign-out / Replay tap).
+    ///      This is the path that keeps `OnboardingFlowView` mounted through
+    ///      the entire sign-in arc, so the unfurl doesn't replay mid-flow.
+    ///   2. The user is unambiguously signed-out (not authenticated AND not
+    ///      loading) — this catches relaunches with no/expired tokens, where
+    ///      `inOnboarding` initialized to `false` because the persistent
+    ///      `hasCompletedOnboarding` flag is true. Without this fallback,
+    ///      RootPanelView's body would render nothing and the user would
+    ///      see a transparent panel after pressing ⌘ ;.
+    private var shouldShowOnboarding: Bool {
+        guard isPrimaryPanel else { return false }
+        if inOnboarding { return true }
+        return !authManager.isAuthenticated && !authManager.isLoadingAuth
+    }
+
     var body: some View {
         Group {
-            if authManager.isAuthenticated, let user = authManager.currentUser {
+            if shouldShowOnboarding {
+                OnboardingFlowView(onComplete: { diveInAfter in
+                    settings.hasCompletedOnboarding = true
+                    inOnboarding = false
+                    if diveInAfter {
+                        signedInRoute = .main
+                    } else {
+                        // Reset to home so a user replaying from Settings
+                        // doesn't land back inside Settings after the flow.
+                        signedInRoute = .home
+                    }
+                })
+            } else if authManager.isAuthenticated, let user = authManager.currentUser {
                 switch signedInRoute {
                 case .home:
                     AuthenticatedView(
@@ -64,8 +100,6 @@ struct RootPanelView: View {
                 Text("Signing in...")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
-            } else {
-                LandingView()
             }
         }
         .environmentObject(authManager)
@@ -85,8 +119,25 @@ struct RootPanelView: View {
         .onChange(of: authManager.state) { _, newValue in
             if case .signedIn = newValue {
                 // keep current route
+            } else if case .signedOut = newValue {
+                // Sign-out replays onboarding. The persistent
+                // `hasCompletedOnboarding` flag stays `true` (so we know
+                // the user has seen the tour before and can skip the
+                // hotkey teaching beat), but `inOnboarding` flips to true
+                // to re-enter the flow.
+                signedInRoute = .home
+                inOnboarding = true
             } else {
                 signedInRoute = .home
+            }
+        }
+        .onChange(of: settings.hasCompletedOnboarding) { _, newValue in
+            // The "Replay onboarding" button in Settings flips this to
+            // `false`. Re-enter the flow when that happens. The opposite
+            // case (`true` → set by `onComplete`) is already handled
+            // inside the onComplete callback above.
+            if !newValue {
+                inOnboarding = true
             }
         }
         .onAppear {

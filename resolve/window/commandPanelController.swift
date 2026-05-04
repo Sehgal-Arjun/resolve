@@ -1,6 +1,26 @@
 import Cocoa
 import SwiftUI
 
+/// Where the panel should be "pinned" while it grows or shrinks. Existing call
+/// sites (chat phase changes, landing/welcome cards) want the top edge fixed
+/// — the panel reveals new content downward. Onboarding's first-launch reveal
+/// wants the panel's center fixed so it feels like the surface is unfurling
+/// outward in every direction. The cheat-sheet → home morph at the end of
+/// onboarding pins a specific Y position from the panel top so a chunk of
+/// shared content (the keyboard shortcuts grid) stays at the same screen y
+/// while the panel grows around it.
+enum CommandPanelFrameAnchor {
+    case topCenter
+    case center
+    case bottomCenter
+    /// Pin a Y position (measured down from the panel top) so it stays at
+    /// the same screen y across the resize. `currentY` is the offset in the
+    /// CURRENT panel layout; `newY` is the offset in the NEW panel layout.
+    /// The panel can grow or shrink in either direction asymmetrically as
+    /// needed to keep that point fixed visually.
+    case anchorTopFromContent(currentY: CGFloat, newY: CGFloat)
+}
+
 @MainActor
 final class CommandPanelController: NSObject, NSWindowDelegate {
     static let primary = CommandPanelController(isPrimary: true)
@@ -47,6 +67,30 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
     func show() {
         createPanelIfNeeded()
         guard let panel else { return }
+
+        // First-show special case: if the user is about to see the onboarding
+        // flow, pre-size the panel to the arrival "logo only" size BEFORE it
+        // becomes visible. Otherwise the panel paints once at its default
+        // 520×540 size, then the SwiftUI onAppear snaps it down to 160×160 —
+        // the user sees a giant panel briefly collapse before the R animation
+        // even starts.
+        let onboardingPending = isPrimary
+            && !hasBeenPositioned
+            && !UserSettingsStore.shared.hasCompletedOnboarding
+        if onboardingPending, let screen = NSScreen.main {
+            let arrivalSize = NSSize(width: 160, height: 160)
+            let visible = screen.visibleFrame
+            let origin = NSPoint(
+                x: visible.midX - arrivalSize.width / 2,
+                y: visible.maxY - arrivalSize.height - 220
+            )
+            panel.setFrame(NSRect(origin: origin, size: arrivalSize), display: true)
+            savedFrame = nil
+            hasBeenPositioned = true
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
 
         let anchor = UserSettingsStore.shared.panelAnchor
 
@@ -106,7 +150,7 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         _ = enabled
     }
 
-    func setHeight(_ height: CGFloat, animated: Bool) {
+    func setHeight(_ height: CGFloat, animated: Bool, duration: Double = 0.22) {
         guard let panel else { return }
 
         let currentFrame = panel.frame
@@ -117,17 +161,16 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         newFrame.origin.y -= delta
         newFrame.size.height = height
 
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                panel.animator().setFrame(newFrame, display: true)
-            }
-        } else {
-            panel.setFrame(newFrame, display: true)
-        }
+        animateFrame(panel: panel, to: newFrame, animated: animated, duration: duration)
     }
 
-    func setSize(width: CGFloat, height: CGFloat, animated: Bool) {
+    func setSize(
+        width: CGFloat,
+        height: CGFloat,
+        animated: Bool,
+        duration: Double = 0.22,
+        anchor: CommandPanelFrameAnchor = .topCenter
+    ) {
         guard let panel else { return }
 
         let currentFrame = panel.frame
@@ -137,22 +180,40 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         guard abs(deltaHeight) > 0.5 || abs(deltaWidth) > 0.5 else { return }
 
         var newFrame = currentFrame
-        newFrame.origin.y -= deltaHeight
-        newFrame.origin.x -= deltaWidth / 2
+        switch anchor {
+        case .topCenter:
+            newFrame.origin.y -= deltaHeight
+            newFrame.origin.x -= deltaWidth / 2
+        case .center:
+            newFrame.origin.y -= deltaHeight / 2
+            newFrame.origin.x -= deltaWidth / 2
+        case .bottomCenter:
+            // In AppKit the origin is the bottom-left corner. Leaving
+            // origin.y untouched holds the bottom edge in place; the panel
+            // grows or shrinks purely upward.
+            newFrame.origin.x -= deltaWidth / 2
+        case .anchorTopFromContent(let currentY, let newY):
+            // Geometry: in AppKit, top = origin.y + height (origin from
+            // screen bottom). The point at `currentY` from the panel top
+            // sits at AppKit y = currentTop - currentY. We want the same
+            // point in the new panel — i.e., newTop - newY — to land at
+            // the same screen y. Solving newTop - newY == currentTop - currentY:
+            //   newOrigin.y + height - newY = currentOrigin.y + currentHeight - currentY
+            //   newOrigin.y = currentOrigin.y + currentHeight - height - currentY + newY
+            newFrame.origin.x -= deltaWidth / 2
+            newFrame.origin.y = currentFrame.origin.y
+                + currentFrame.size.height
+                - height
+                - currentY
+                + newY
+        }
         newFrame.size.height = height
         newFrame.size.width = width
 
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
-                panel.animator().setFrame(newFrame, display: true)
-            }
-        } else {
-            panel.setFrame(newFrame, display: true)
-        }
+        animateFrame(panel: panel, to: newFrame, animated: animated, duration: duration)
     }
 
-    func setWidth(_ width: CGFloat, animated: Bool) {
+    func setWidth(_ width: CGFloat, animated: Bool, duration: Double = 0.22) {
         guard let panel else { return }
 
         let currentFrame = panel.frame
@@ -162,9 +223,20 @@ final class CommandPanelController: NSObject, NSWindowDelegate {
         var newFrame = currentFrame
         newFrame.size.width = width
 
+        animateFrame(panel: panel, to: newFrame, animated: animated, duration: duration)
+    }
+
+    /// Centralized AppKit frame animation with explicit ease-in-out timing.
+    /// `allowsImplicitAnimation` is intentionally NOT set — turning it on
+    /// layers extra implicit Core Animation transitions on top of the
+    /// explicit `setFrame`, which fights any SwiftUI animation running in
+    /// parallel and shows up as the panel chrome jittering against its
+    /// content during the morph.
+    private func animateFrame(panel: NSPanel, to newFrame: NSRect, animated: Bool, duration: Double) {
         if animated {
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.22
+                context.duration = duration
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
                 panel.animator().setFrame(newFrame, display: true)
             }
         } else {

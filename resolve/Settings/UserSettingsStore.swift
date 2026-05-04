@@ -401,6 +401,7 @@ final class UserSettingsStore: ObservableObject {
         static let panelSize = "settings.panelSize"
         static let panelAnchor = "settings.panelAnchor"
         static let lastPanelFrame = "settings.lastPanelFrame"
+        static let hasCompletedOnboarding = "settings.hasCompletedOnboarding"
     }
 
     static let defaultCustomAccentHex = "#3B82F6"
@@ -544,6 +545,14 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    /// Set to `true` once the user finishes the first-launch onboarding flow.
+    /// Returning users skip onboarding entirely. Reset by clearing UserDefaults.
+    @Published var hasCompletedOnboarding: Bool {
+        didSet {
+            defaults.set(hasCompletedOnboarding, forKey: Keys.hasCompletedOnboarding)
+        }
+    }
+
     private init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
 
@@ -614,6 +623,8 @@ final class UserSettingsStore: ObservableObject {
             }
         }()
         panelAnchor = normalizedAnchor.flatMap(PanelAnchor.init(rawValue:)) ?? .lastPosition
+
+        hasCompletedOnboarding = (defaults.object(forKey: Keys.hasCompletedOnboarding) as? Bool) ?? false
 
         applyAppearance()
     }
