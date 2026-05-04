@@ -21,28 +21,14 @@ struct ShortcutSpec: Identifiable {
     let name: KeyboardShortcuts.Name
 }
 
+/// Only the toggle-palette chord is exposed as a customizable global hotkey.
+/// Every other shortcut (⌘N, ⌘⇧R, ⌘⇧N, ⌘W, ⌘,, ⌘⇧O) is a local SwiftUI
+/// menu shortcut wired up in `resolveApp.commands` — those only fire when
+/// Resolve is frontmost, so they don't intercept keystrokes from other apps.
 let resolveCustomizableShortcuts: [ShortcutSpec] = [
     ShortcutSpec(id: "togglePalette", title: "Toggle palette",
-                 subtitle: "Show/hide every Resolve panel from anywhere.",
-                 name: .togglePalette),
-    ShortcutSpec(id: "diveIn", title: "Dive in",
-                 subtitle: "Jump straight into a new chat from the home screen.",
-                 name: .diveIn),
-    ShortcutSpec(id: "resolveRound", title: "Resolve",
-                 subtitle: "Trigger another resolve round on the current question.",
-                 name: .resolveRound),
-    ShortcutSpec(id: "newInstance", title: "New instance",
-                 subtitle: "Open a brand-new Resolve panel.",
-                 name: .newInstance),
-    ShortcutSpec(id: "closeInstance", title: "Close instance",
-                 subtitle: "Close the active secondary instance (no-op on the original).",
-                 name: .closeInstance),
-    ShortcutSpec(id: "openSettings", title: "Settings",
-                 subtitle: "Open Settings (only when the original instance is focused).",
-                 name: .openSettings),
-    ShortcutSpec(id: "focusOriginal", title: "Focus original",
-                 subtitle: "Bring the original instance forward.",
-                 name: .focusOriginal)
+                 subtitle: "Show/hide every Resolve panel from anywhere. The only Resolve shortcut that works system-wide.",
+                 name: .togglePalette)
 ]
 
 let diveInNotification = NSNotification.Name("resolve.diveIn")
