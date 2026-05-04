@@ -95,6 +95,9 @@ struct SettingsPanelView: View {
                 RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
+            .keyboardShortcut("b", modifiers: .command)
+
+            ResolveKeyHintChip("⌘ B")
 
             Text(headerTitle)
                 .font(.system(size: 16, weight: .semibold))

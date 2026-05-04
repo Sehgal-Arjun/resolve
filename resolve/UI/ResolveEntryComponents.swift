@@ -83,3 +83,34 @@ struct ResolveInlineLinkButton: View {
         .animation(.easeOut(duration: 0.12), value: isHovering)
     }
 }
+
+/// Small monospaced "⌘ B"-style chip that appears next to a button or
+/// control to advertise its keyboard shortcut. Renders nothing when the
+/// user has turned off `showKeyboardHintChips` in Settings.
+struct ResolveKeyHintChip: View {
+    let keys: String
+
+    @ObservedObject private var settings = UserSettingsStore.shared
+
+    init(_ keys: String) {
+        self.keys = keys
+    }
+
+    var body: some View {
+        if settings.showKeyboardHintChips {
+            Text(keys)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        }
+    }
+}

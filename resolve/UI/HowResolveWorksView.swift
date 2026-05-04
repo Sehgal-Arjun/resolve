@@ -27,6 +27,9 @@ struct HowResolveWorksView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .keyboardShortcut("b", modifiers: .command)
+
+                        ResolveKeyHintChip("⌘ B")
 
                         Text("How Resolve Works")
                             .font(.system(size: 20, weight: .semibold))
