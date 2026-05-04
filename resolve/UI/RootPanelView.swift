@@ -46,6 +46,85 @@ struct RootPanelView: View {
         return !authManager.isAuthenticated && !authManager.isLoadingAuth
     }
 
+    /// Builds the ⌘K command-menu action list dynamically from the
+    /// current auth state and route. Items that wouldn't make sense for
+    /// the current view (e.g. "Back to Home" when already on home) are
+    /// omitted rather than being shown disabled.
+    private var cmdKActions: [CmdKAction] {
+        var actions: [CmdKAction] = []
+
+        if authManager.isAuthenticated {
+            if signedInRoute != .main {
+                actions.append(CmdKAction(
+                    id: "newchat", title: "New Chat",
+                    icon: "plus.bubble", keys: "⌘ N"
+                ) {
+                    signedInRoute = .main
+                })
+            }
+            if signedInRoute != .home {
+                actions.append(CmdKAction(
+                    id: "home", title: "Back to Home",
+                    icon: "house", keys: "⌘ B"
+                ) {
+                    signedInRoute = .home
+                })
+            }
+            if signedInRoute != .pastChats {
+                actions.append(CmdKAction(
+                    id: "pastchats", title: "Past Chats",
+                    icon: "clock.arrow.circlepath", keys: ""
+                ) {
+                    signedInRoute = .pastChats
+                })
+            }
+            if signedInRoute != .howItWorks {
+                actions.append(CmdKAction(
+                    id: "howitworks", title: "How Resolve Works",
+                    icon: "questionmark.circle", keys: ""
+                ) {
+                    signedInRoute = .howItWorks
+                })
+            }
+            if isPrimaryPanel, signedInRoute != .settings {
+                actions.append(CmdKAction(
+                    id: "settings", title: "Settings",
+                    icon: "gearshape", keys: "⌘ ,"
+                ) {
+                    signedInRoute = .settings
+                })
+            }
+            actions.append(CmdKAction(
+                id: "signout", title: "Sign Out",
+                icon: "rectangle.portrait.and.arrow.right", keys: ""
+            ) {
+                signedInRoute = .home
+                authManager.signOut()
+            })
+        }
+
+        actions.append(CmdKAction(
+            id: "togglepalette", title: "Hide Resolve",
+            icon: "sparkles", keys: "⌘ ;"
+        ) {
+            CommandPanelManager.shared.smartToggle()
+        })
+        actions.append(CmdKAction(
+            id: "newinstance", title: "Open New Instance",
+            icon: "rectangle.on.rectangle", keys: "⌘ ⇧ N"
+        ) {
+            CommandPanelManager.shared.newInstance()
+        })
+        actions.append(CmdKAction(
+            id: "quit", title: "Quit Resolve",
+            icon: "power", keys: "⌘ Q"
+        ) {
+            NSApplication.shared.terminate(nil)
+        })
+
+        return actions
+    }
+
     var body: some View {
         Group {
             if shouldShowOnboarding {
@@ -101,6 +180,19 @@ struct RootPanelView: View {
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
+        }
+        .background {
+            // Hidden ⌘K trigger. Lives in `.background` so it doesn't
+            // affect layout but still lives in the SwiftUI hierarchy
+            // when the panel is the key window. The menu itself opens
+            // as a separate, screen-centered window — see CmdKWindowController.
+            Button("") {
+                CmdKWindowController.shared.toggle(actions: cmdKActions)
+            }
+            .keyboardShortcut("k", modifiers: .command)
+            .opacity(0)
+            .frame(width: 0, height: 0)
+            .accessibilityHidden(true)
         }
         .environmentObject(authManager)
         .tint(settings.resolvedAccentColor)

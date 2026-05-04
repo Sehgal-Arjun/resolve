@@ -181,6 +181,23 @@ final class BackendAPIClient {
         }
     }
 
+    func listRuns(conversationId: UUID, messageId: UUID) async throws -> [RunResult] {
+        try await listRuns(conversationId: conversationId.uuidString, messageId: messageId.uuidString)
+    }
+
+    func listRuns(conversationId: String, messageId: String) async throws -> [RunResult] {
+        let path = "/conversations/\(conversationId)/messages/\(messageId)/runs"
+        let (data, _) = try await requestRaw(path: path, method: "GET", body: Optional<Int>.none)
+
+        do {
+            let response = try Self.decoder.decode(RunsListResponse.self, from: data)
+            return response.runs
+        } catch {
+            logDecodingError(error, context: "listRuns")
+            throw BackendAPIError.decoding(error)
+        }
+    }
+
     // MARK: - Core Request
 
     private func request<T: Decodable, Body: Encodable>(path: String, method: String, body: Body?) async throws -> T {

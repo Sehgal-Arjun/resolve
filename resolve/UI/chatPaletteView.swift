@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 fileprivate struct RoundSnapshot {
     let runId: UUID
@@ -307,6 +309,8 @@ struct ChatPaletteView: View {
             }
             .padding(18)
             .clipShape(RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous))
+
+            hiddenKeyboardShortcuts
         }
         .tint(settings.resolvedAccentColor)
         .environment(\.resolveChatPhase, phaseString)
@@ -718,6 +722,103 @@ struct ChatPaletteView: View {
         roundSnapshots.isEmpty ? 1 : viewedRoundIndex + 1
     }
 
+    /// Static lookup for ⌘1–⌘5 advocate-drawer shortcuts. Indexing into a
+    /// fixed array keeps the compiler happy across Swift versions and
+    /// hard-caps the panel at 5 advocate slots.
+    private static let advocateNumberKeys: [KeyEquivalent] = [
+        KeyEquivalent("1"), KeyEquivalent("2"), KeyEquivalent("3"),
+        KeyEquivalent("4"), KeyEquivalent("5")
+    ]
+
+    /// Hidden buttons that capture chat-only keyboard shortcuts. Each one
+    /// is a 0×0 invisible button — SwiftUI still routes the matching key
+    /// chord to its action when the chat panel is the key window. Local
+    /// scope: pressing these chords in another app does nothing to Resolve.
+    @ViewBuilder
+    private var hiddenKeyboardShortcuts: some View {
+        Group {
+            // ⌘ [ — previous resolve round
+            Button("") { goToPreviousRound() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!canGoBackRound)
+
+            // ⌘ ] — next resolve round
+            Button("") { goToNextRound() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!canGoForwardRound)
+
+            // ⌘ ⎋ — close advocate drawer
+            Button("") { selectedAdvocateId = nil }
+                .keyboardShortcut(.escape, modifiers: .command)
+                .disabled(selectedAdvocateId == nil)
+
+            // ⌘ 1–5 — open the Nth advocate's drawer
+            ForEach(0..<5, id: \.self) { idx in
+                Button("") {
+                    let list = advocates
+                    guard idx < list.count else { return }
+                    selectedAdvocateId = list[idx].id
+                }
+                .keyboardShortcut(Self.advocateNumberKeys[idx], modifiers: .command)
+                .disabled(idx >= advocates.count)
+            }
+
+            // ⌘ ⇧ C — copy arbiter summary to clipboard
+            Button("") { copyArbiterSummary() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(arbiterSummaryText.isEmpty)
+
+            // ⌘ ⇧ E — export the entire chat as markdown
+            Button("") { exportChatAsMarkdown() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(arbiterSummaryText.isEmpty || lastSentText.isEmpty)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    private func copyArbiterSummary() {
+        guard !arbiterSummaryText.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(arbiterSummaryText, forType: .string)
+    }
+
+    private func exportChatAsMarkdown() {
+        guard !arbiterSummaryText.isEmpty, !lastSentText.isEmpty else { return }
+
+        var md = "# Resolve Chat\n\n"
+        md += "## Question\n\n"
+        md += "\(lastSentText)\n\n"
+        md += "## Arbiter Summary\n\n"
+        md += "\(arbiterSummaryText)\n\n"
+
+        if !advocates.isEmpty {
+            md += "## Advocate Responses\n\n"
+            for advocate in advocates {
+                md += "### \(advocate.providerName)\n\n"
+                if !advocate.summary.isEmpty {
+                    md += "**Summary:** \(advocate.summary)\n\n"
+                }
+                if !advocate.explanation.isEmpty {
+                    md += "\(advocate.explanation)\n\n"
+                }
+            }
+        }
+
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.text]
+        panel.nameFieldStringValue = "resolve-chat.md"
+        panel.canCreateDirectories = true
+        panel.title = "Export chat"
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            try? md.write(to: url, atomically: true, encoding: .utf8)
+        }
+    }
+
     private var roundNavigationView: some View {
         HStack(spacing: 6) {
             Button {
@@ -738,11 +839,20 @@ struct ChatPaletteView: View {
             )
             .opacity(canGoBackRound ? 1.0 : 0.35)
             .disabled(!canGoBackRound)
+            .help("Previous round (⌘ [)")
+
+            if canGoBackRound && settings.showKeyboardHintChips {
+                ResolveKeycap("⌘ [")
+            }
 
             Text("\(displayedRoundNumber)/\(displayedRoundCount)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 26)
+
+            if canGoForwardRound && settings.showKeyboardHintChips {
+                ResolveKeycap("⌘ ]")
+            }
 
             Button {
                 goToNextRound()
@@ -762,6 +872,7 @@ struct ChatPaletteView: View {
             )
             .opacity(canGoForwardRound ? 1.0 : 0.35)
             .disabled(!canGoForwardRound)
+            .help("Next round (⌘ ])")
         }
     }
 
@@ -1238,6 +1349,21 @@ private extension ChatPaletteView {
     }
 
     @MainActor
+    func showEmptyHistoricalState(hasLastUser: Bool) {
+        arbiterSummaryText = "No saved outputs for this chat."
+        advocateResults = []
+        classifierGroups = []
+        mcqDisagreement = nil
+        showHistoricalEmptyState = true
+        allowPlaceholderAdvocates = false
+        isArbiterThinking = false
+        isResolveRoundInFlight = false
+        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
+            phase = hasLastUser ? .responded : .composing
+        }
+    }
+
+    @MainActor
     private func applySnapshot(_ snapshot: RoundSnapshot) {
         arbiterSummaryText = snapshot.arbiterSummaryText
         advocateResults = snapshot.advocateResults
@@ -1268,27 +1394,37 @@ private extension ChatPaletteView {
         return ["complete", "completed", "succeeded", "success", "done"].contains(status)
     }
 
-    func pickHistoricalRun(from messages: [MessageRow]) -> (id: UUID, status: String?, source: String)? {
-        let sorted = messages.sorted { $0.createdAt > $1.createdAt }
-        for message in sorted {
-            print("ChatPaletteView.pickHistoricalRun: message=\(message)")
-            if let runId = message.latestCompletedRunId {
-                let status = message.latestCompletedRunStatus ?? message.status ?? message.latestRunStatus
-                return (runId, status, "latest_completed_run_id")
+    /// Pure-ish snapshot factory. Mirrors the per-run derivations done by
+    /// `applyRunResult` so historical hydration can build snapshots for
+    /// many runs without thrashing UI state in between.
+    @MainActor
+    func makeRoundSnapshot(from run: RunResult) -> RoundSnapshot {
+        let arbiter = arbiterText(from: run.arbiterOutput) ?? "No response returned."
+        let advocates = mapAdvocates(from: run)
+        let groups = run.classifierOutput?.outputJson.groups ?? []
+
+        let derivedProblemType: ProblemType
+        if let pt = run.promptType?.lowercased() {
+            if pt.contains("multi") {
+                derivedProblemType = .multipleChoiceMulti
+            } else if pt.contains("single") || pt.contains("mcq") {
+                derivedProblemType = .multipleChoiceSingle
+            } else {
+                derivedProblemType = .generalQuestion
             }
-            guard let runId = message.runId else { continue }
-            let status = message.runStatus ?? message.status ?? message.latestRunStatus
-            if isCompletedRunStatus(status) {
-                return (runId, status, "run_id")
-            }
-            if let fallback = message.latestRunId {
-                let fallbackStatus = message.latestRunStatus ?? message.status
-                if isCompletedRunStatus(fallbackStatus) {
-                    return (fallback, fallbackStatus, "latest_run_id")
-                }
-            }
+        } else {
+            derivedProblemType = submittedProblemType
         }
-        return nil
+
+        return RoundSnapshot(
+            runId: run.runId,
+            arbiterSummaryText: arbiter,
+            advocateResults: advocates,
+            classifierGroups: groups,
+            mcqDisagreement: run.mcqDisagreement,
+            submittedProblemType: derivedProblemType,
+            lastPromptTypeForBackend: run.promptType ?? lastPromptTypeForBackend
+        )
     }
 
     func ensureConversationId() async throws -> UUID {
@@ -1330,48 +1466,55 @@ private extension ChatPaletteView {
             await MainActor.run {
                 logResolveState(context: "historical-load", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
             }
-            let selectedRun = pickHistoricalRun(from: detail.messages)
-            if let selectedRun {
-                print("ChatPaletteView.loadConversation: selected run_id=\(selectedRun.id) status=\(selectedRun.status ?? "unknown") source=\(selectedRun.source)")
-                do {
-                    let run = try await api.getRun(conversationId: conversationId, runId: selectedRun.id)
-                    await MainActor.run {
-                        applyRunResult(run)
-                        logResolveState(context: "historical-hydrated", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
-                    }
-                    print("ChatPaletteView.loadConversation: historical hydration succeeded")
-                } catch {
-                    await MainActor.run {
-                        arbiterSummaryText = "No saved outputs for this chat."
-                        advocateResults = []
-                        classifierGroups = []
-                        mcqDisagreement = nil
-                        showHistoricalEmptyState = true
-                        allowPlaceholderAdvocates = false
-                        isArbiterThinking = false
-                        isResolveRoundInFlight = false
-                        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
-                            phase = hasLastUser ? .responded : .composing
-                        }
-                    }
-                    print("ChatPaletteView.loadConversation: historical hydration failed: \(error.localizedDescription)")
-                }
-            } else {
-                print("ChatPaletteView.loadConversation: no completed run_id found")
+
+            // Hydrate every completed run for the latest user message so
+            // back-scroll through prior rounds works after reopening a
+            // chat from history. Falls back to the empty-historical-state
+            // path if there's no user message or no completed runs to show.
+            let userMessage = detail.messages.last(where: { $0.role.lowercased() == "user" })
+            guard let userMessageId = userMessage?.id else {
+                print("ChatPaletteView.loadConversation: no user message in history")
                 await MainActor.run {
-                    arbiterSummaryText = "No saved outputs for this chat."
-                    advocateResults = []
-                    classifierGroups = []
-                    mcqDisagreement = nil
-                    showHistoricalEmptyState = true
-                    allowPlaceholderAdvocates = false
+                    showEmptyHistoricalState(hasLastUser: hasLastUser)
+                    logResolveState(context: "historical-no-user", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                }
+                return
+            }
+
+            do {
+                let runs = try await api.listRuns(conversationId: conversationId, messageId: userMessageId)
+                let completedRuns = runs.filter { isCompletedRunStatus($0.status) }
+                print("ChatPaletteView.loadConversation: fetched \(runs.count) run(s), \(completedRuns.count) completed, messageId=\(userMessageId)")
+
+                if completedRuns.isEmpty {
+                    await MainActor.run {
+                        showEmptyHistoricalState(hasLastUser: hasLastUser)
+                        logResolveState(context: "historical-no-completed-runs", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    let snapshots = completedRuns.map { makeRoundSnapshot(from: $0) }
+                    roundSnapshots = snapshots
+                    let lastIndex = snapshots.count - 1
+                    viewedRoundIndex = lastIndex
+                    applySnapshot(snapshots[lastIndex])
+                    showHistoricalEmptyState = false
+                    allowPlaceholderAdvocates = true
                     isArbiterThinking = false
                     isResolveRoundInFlight = false
                     withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
-                        phase = hasLastUser ? .responded : .composing
+                        phase = .responded
                     }
-                    logResolveState(context: "historical-no-run", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                    logResolveState(context: "historical-hydrated", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
                 }
+                print("ChatPaletteView.loadConversation: historical hydration succeeded with \(completedRuns.count) round(s)")
+            } catch {
+                await MainActor.run {
+                    showEmptyHistoricalState(hasLastUser: hasLastUser)
+                }
+                print("ChatPaletteView.loadConversation: historical hydration failed: \(error.localizedDescription)")
             }
         } catch {
             await MainActor.run {

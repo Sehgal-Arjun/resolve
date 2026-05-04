@@ -64,6 +64,10 @@ struct PostMessageResponse: Codable, Hashable {
     let run: RunResult
 }
 
+struct RunsListResponse: Codable, Hashable {
+    let runs: [RunResult]
+}
+
 struct RunResult: Codable, Hashable {
 
     struct RunMetadata: Codable, Hashable {
