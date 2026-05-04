@@ -24,6 +24,16 @@ final class AppController: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // Resolve is a panel-only app — without an auto-show, a fresh
+        // launch leaves the user staring at just the Dock icon. Show
+        // the panel on every launch (matches typical app behavior of
+        // surfacing a window when opened). The user can still hide it
+        // via ⌘ ; once they're done.
+        DispatchQueue.main.async {
+            CommandPanelManager.shared.showAll()
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     /// Only ⌘; is a true global hotkey. Everything else is a SwiftUI menu
