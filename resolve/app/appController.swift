@@ -6,10 +6,15 @@ import Combine
 @MainActor
 final class AppController: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
+    /// Token returned by `NSEvent.addLocalMonitorForEvents`. Held so the
+    /// monitor stays alive for the lifetime of the controller (== the
+    /// lifetime of the app).
+    private var localKeyMonitor: Any?
 
     init() {
         seedDefaultShortcuts()
         wireShortcutHandlers()
+        installLocalKeyMonitor()
 
         AuthManager.shared.$state
             .receive(on: DispatchQueue.main)
@@ -25,11 +30,10 @@ final class AppController: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Resolve is a panel-only app — without an auto-show, a fresh
-        // launch leaves the user staring at just the Dock icon. Show
-        // the panel on every launch (matches typical app behavior of
-        // surfacing a window when opened). The user can still hide it
-        // via ⌘ ; once they're done.
+        // Resolve is a menu-bar app with no Dock icon — without an
+        // auto-show, a fresh launch leaves the user staring at just
+        // the menu bar icon. Surface the panel on every launch; the
+        // user can still hide it via ⌘ ; once they're done.
         DispatchQueue.main.async {
             CommandPanelManager.shared.showAll()
             NSApp.activate(ignoringOtherApps: true)
@@ -67,8 +71,64 @@ final class AppController: ObservableObject {
             NotificationCenter.default.post(name: togglePaletteUsedNotification, object: nil)
         }
 
-        // All other shortcuts are SwiftUI menu shortcuts (resolveApp.commands).
-        // They only fire when Resolve has focus, so they don't trample on
-        // other apps' bindings.
+        // All other shortcuts are routed through `installLocalKeyMonitor`
+        // — they only fire when Resolve has key focus (its panel is
+        // active), so they don't trample on other apps' bindings.
+    }
+
+    /// LSUIElement apps have no system menu bar, so SwiftUI's `.commands`
+    /// keyboard shortcuts never fire. We replace them with a single
+    /// `NSEvent.addLocalMonitorForEvents` that intercepts ⌘N, ⌘W, ⌘⇧R,
+    /// ⌘⇧N, ⌘,, and ⌘⇧O while Resolve is the frontmost app. Local
+    /// monitor scope: keystrokes destined for OUR app only — keystrokes
+    /// in other apps are completely untouched.
+    private func installLocalKeyMonitor() {
+        localKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            return self.handleLocalKeyEvent(event)
+        }
+    }
+
+    private func handleLocalKeyEvent(_ event: NSEvent) -> NSEvent? {
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let chars = (event.charactersIgnoringModifiers ?? "").lowercased()
+
+        if mods == .command {
+            switch chars {
+            case "n":
+                NotificationCenter.default.post(name: diveInNotification, object: nil)
+                return nil
+            case "w":
+                CommandPanelController.shared.closeInstance()
+                return nil
+            case ",":
+                guard CommandPanelController.shared === CommandPanelController.primary else {
+                    return event
+                }
+                NotificationCenter.default.post(name: openSettingsNotification, object: nil)
+                return nil
+            default:
+                return event
+            }
+        }
+
+        if mods == [.command, .shift] {
+            switch chars {
+            case "r":
+                NotificationCenter.default.post(name: resolveRoundNotification, object: nil)
+                return nil
+            case "n":
+                CommandPanelManager.shared.newInstance()
+                return nil
+            case "o":
+                CommandPanelController.primary.show()
+                NSApp.activate(ignoringOtherApps: true)
+                return nil
+            default:
+                return event
+            }
+        }
+
+        return event
     }
 }

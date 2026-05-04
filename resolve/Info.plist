@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Run as a "UI element" app: no Dock icon, no app in cmd-tab,
+	     no app menu in the system menu bar. Resolve lives entirely as
+	     a menu-bar status item plus a floating panel summoned via ⌘ ;. -->
+	<key>LSUIElement</key>
+	<true/>
 	<!-- Callback URL scheme for Clerk OAuth redirect. -->
 	<key>CFBundleURLTypes</key>
 	<array>
