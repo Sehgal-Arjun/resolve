@@ -354,6 +354,28 @@ struct ChatPaletteView: View {
             guard CommandPanelController.shared === panelController else { return }
             triggerResolveRound(source: "notification")
         }
+        .onReceive(NotificationCenter.default.publisher(for: previousRoundNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            guard canGoBackRound else { return }
+            goToPreviousRound()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: nextRoundNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            guard canGoForwardRound else { return }
+            goToNextRound()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: closeAdvocateDrawerNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            selectedAdvocateId = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: copyArbiterSummaryNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            copyArbiterSummary()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: exportChatMarkdownNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            exportChatAsMarkdown()
+        }
     }
 
     private var topArea: some View {

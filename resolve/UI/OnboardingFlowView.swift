@@ -931,12 +931,16 @@ struct OnboardingFlowView: View {
 
             // Shortcut rows stay visible through the morph — they're the
             // anchor that the home view's shortcuts will land on.
+            // Sourced from the same catalog as the home list (see
+            // `hotkeys/KeyboardShortcuts.swift`). The cheat sheet always
+            // runs on the primary panel, so the context is fixed.
             VStack(spacing: 6) {
-                OnboardingShortcutRow(label: "Toggle visibility", keys: "⌘ ;")
-                OnboardingShortcutRow(label: "Get started / new chat", keys: "⌘ N")
-                OnboardingShortcutRow(label: "Resolve", keys: "⌘ ⇧ R")
-                OnboardingShortcutRow(label: "New instance", keys: "⌘ ⇧ N")
-                OnboardingShortcutRow(label: "Settings", keys: "⌘ ,")
+                ForEach(KeyboardShortcutCatalog.shortcuts(
+                    for: .onboardingCheatSheet,
+                    context: KeyboardShortcutContext(isPrimaryPanel: true, canCloseInstance: false)
+                )) { entry in
+                    OnboardingShortcutRow(label: entry.label, keys: entry.keys)
+                }
             }
 
             HStack {

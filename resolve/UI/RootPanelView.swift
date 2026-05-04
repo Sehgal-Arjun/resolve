@@ -49,15 +49,20 @@ struct RootPanelView: View {
     /// Builds the ⌘K command-menu action list dynamically from the
     /// current auth state and route. Items that wouldn't make sense for
     /// the current view (e.g. "Back to Home" when already on home) are
-    /// omitted rather than being shown disabled.
+    /// omitted rather than being shown disabled. The `keys` glyph for
+    /// each row comes from the shortcut catalog (see
+    /// `hotkeys/KeyboardShortcuts.swift`) so the menu and the rest of
+    /// the app stay in sync.
     private var cmdKActions: [CmdKAction] {
+        func keys(_ id: String) -> String { KeyboardShortcutCatalog.keys(forId: id) }
+
         var actions: [CmdKAction] = []
 
         if authManager.isAuthenticated {
             if signedInRoute != .main {
                 actions.append(CmdKAction(
                     id: "newchat", title: "New Chat",
-                    icon: "plus.bubble", keys: "⌘ N"
+                    icon: "plus.bubble", keys: keys("newChat")
                 ) {
                     signedInRoute = .main
                 })
@@ -65,7 +70,7 @@ struct RootPanelView: View {
             if signedInRoute != .home {
                 actions.append(CmdKAction(
                     id: "home", title: "Back to Home",
-                    icon: "house", keys: "⌘ B"
+                    icon: "house", keys: keys("back")
                 ) {
                     signedInRoute = .home
                 })
@@ -89,11 +94,53 @@ struct RootPanelView: View {
             if isPrimaryPanel, signedInRoute != .settings {
                 actions.append(CmdKAction(
                     id: "settings", title: "Settings",
-                    icon: "gearshape", keys: "⌘ ,"
+                    icon: "gearshape", keys: keys("settings")
                 ) {
                     signedInRoute = .settings
                 })
             }
+
+            // Chat-context actions. The menu fires these via notifications;
+            // ChatPaletteView listens and gates on its own active-panel
+            // identity + phase, so picking these from a non-chat route is
+            // a quiet no-op rather than a crash.
+            actions.append(CmdKAction(
+                id: "resolve", title: "Resolve",
+                icon: "wand.and.stars", keys: keys("resolve")
+            ) {
+                NotificationCenter.default.post(name: resolveRoundNotification, object: nil)
+            })
+            actions.append(CmdKAction(
+                id: "previousRound", title: "Previous round",
+                icon: "chevron.left.circle", keys: keys("previousRound")
+            ) {
+                NotificationCenter.default.post(name: previousRoundNotification, object: nil)
+            })
+            actions.append(CmdKAction(
+                id: "nextRound", title: "Next round",
+                icon: "chevron.right.circle", keys: keys("nextRound")
+            ) {
+                NotificationCenter.default.post(name: nextRoundNotification, object: nil)
+            })
+            actions.append(CmdKAction(
+                id: "closeDrawer", title: "Close advocate drawer",
+                icon: "sidebar.right", keys: keys("closeDrawer")
+            ) {
+                NotificationCenter.default.post(name: closeAdvocateDrawerNotification, object: nil)
+            })
+            actions.append(CmdKAction(
+                id: "copySummary", title: "Copy arbiter summary",
+                icon: "doc.on.doc", keys: keys("copySummary")
+            ) {
+                NotificationCenter.default.post(name: copyArbiterSummaryNotification, object: nil)
+            })
+            actions.append(CmdKAction(
+                id: "exportChat", title: "Export chat as markdown",
+                icon: "square.and.arrow.up", keys: keys("exportChat")
+            ) {
+                NotificationCenter.default.post(name: exportChatMarkdownNotification, object: nil)
+            })
+
             actions.append(CmdKAction(
                 id: "signout", title: "Sign Out",
                 icon: "rectangle.portrait.and.arrow.right", keys: ""
@@ -105,19 +152,19 @@ struct RootPanelView: View {
 
         actions.append(CmdKAction(
             id: "togglepalette", title: "Hide Resolve",
-            icon: "sparkles", keys: "⌘ ;"
+            icon: "sparkles", keys: keys("togglePalette")
         ) {
             CommandPanelManager.shared.smartToggle()
         })
         actions.append(CmdKAction(
             id: "newinstance", title: "Open New Instance",
-            icon: "rectangle.on.rectangle", keys: "⌘ ⇧ N"
+            icon: "rectangle.on.rectangle", keys: keys("newInstance")
         ) {
             CommandPanelManager.shared.newInstance()
         })
         actions.append(CmdKAction(
             id: "quit", title: "Quit Resolve",
-            icon: "power", keys: "⌘ Q"
+            icon: "power", keys: keys("quit")
         ) {
             NSApplication.shared.terminate(nil)
         })
