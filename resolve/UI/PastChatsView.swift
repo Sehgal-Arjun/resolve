@@ -10,6 +10,7 @@ struct PastChatsView: View {
     @State private var conversations: [Conversation] = []
     @State private var isLoading = false
     @State private var lastError: String?
+    @State private var isBackButtonHovering = false
 
     @ObservedObject private var settings = UserSettingsStore.shared
 
@@ -44,8 +45,14 @@ struct PastChatsView: View {
                             .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                     )
                     .keyboardShortcut("b", modifiers: .command)
+                    .help("Go home (⌘ B)")
+                    .onHover { isBackButtonHovering = $0 }
 
+                    // Hover-only hint: opacity-gated so layout doesn't
+                    // shift when the chip appears.
                     ResolveKeyHintChip("⌘ B")
+                        .opacity(isBackButtonHovering ? 1 : 0)
+                        .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
 
                     Text("Past chats")
                         .font(.system(size: 16, weight: .semibold))

@@ -29,6 +29,7 @@ struct ChatPaletteView: View {
 
     @State private var text = ""
     @State private var phase: Phase = .composing
+    @State private var isBackButtonHovering = false
     @State private var arbiterSummaryText = ""
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
@@ -505,7 +506,7 @@ struct ChatPaletteView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(advocates) { advocate in
+                ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                     Button {
                         toggleAdvocateSelection(advocate)
                     } label: {
@@ -518,7 +519,8 @@ struct ChatPaletteView: View {
                             cornerRadius: settings.cornerRadius(10),
                             selectionTint: settings.resolvedAccentColor,
                             selectionTintOpacity: selectedAdvocateBorderOpacity,
-                            summaryLineLimit: settings.advocateCardDensity.summaryLineLimit
+                            summaryLineLimit: settings.advocateCardDensity.summaryLineLimit,
+                            keyHint: (idx < 5 && settings.showKeyboardHintChips) ? "⌘ \(idx + 1)" : nil
                         )
                     }
                     .buttonStyle(.plain)
@@ -593,6 +595,10 @@ struct ChatPaletteView: View {
 
                 Spacer()
 
+                if settings.showKeyboardHintChips {
+                    ResolveKeycap("⌘ esc")
+                }
+
                 Button {
                     selectedAdvocateId = nil
                 } label: {
@@ -609,6 +615,7 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
+                .help("Close drawer (⌘ esc)")
             }
 
             Text("Detailed reasoning")
@@ -710,7 +717,7 @@ struct ChatPaletteView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(advocates) { advocate in
+                        ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                             Button {
                                 toggleAdvocateSelection(advocate)
                             } label: {
@@ -723,7 +730,8 @@ struct ChatPaletteView: View {
                                     cornerRadius: settings.cornerRadius(10),
                                     selectionTint: settings.resolvedAccentColor,
                                     selectionTintOpacity: selectedAdvocateBorderOpacity,
-                                    summaryLineLimit: settings.advocateCardDensity.thesisLineLimit
+                                    summaryLineLimit: settings.advocateCardDensity.thesisLineLimit,
+                                    keyHint: (idx < 5 && settings.showKeyboardHintChips) ? "⌘ \(idx + 1)" : nil
                                 )
                             }
                             .buttonStyle(.plain)
@@ -759,6 +767,12 @@ struct ChatPaletteView: View {
     @ViewBuilder
     private var hiddenKeyboardShortcuts: some View {
         Group {
+            // ⌘ B — go home (only when this chat was opened with a back
+            // affordance, e.g. via Past Chats).
+            Button("") { onBack?() }
+                .keyboardShortcut("b", modifiers: .command)
+                .disabled(onBack == nil)
+
             // ⌘ [ — previous resolve round
             Button("") { goToPreviousRound() }
                 .keyboardShortcut("[", modifiers: .command)
@@ -958,6 +972,22 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .fill(Color.white.opacity(0.08))
                 )
+                .help("Go home (⌘ B)")
+                .onHover { isBackButtonHovering = $0 }
+                // Hover-only chip: overlay alignment + offset keeps it
+                // out of the layout flow so the button stays 32×32 and
+                // aligned with the rest of the input bar. Fades in on
+                // hover, fades out otherwise.
+                .overlay(alignment: .top) {
+                    if settings.showKeyboardHintChips {
+                        ResolveKeycap("⌘ B")
+                            .fixedSize()
+                            .offset(y: -20)
+                            .opacity(isBackButtonHovering ? 1 : 0)
+                            .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
 
             Button(action: startNewConversation) {
@@ -1598,6 +1628,10 @@ private extension ChatPaletteView {
         let selectionTint: Color
         let selectionTintOpacity: Double
         let summaryLineLimit: Int
+        /// Pre-formatted "⌘ N" string. Nil means no chip is rendered —
+        /// either because the card's index is past 5 or the user
+        /// disabled keyboard hint chips in Settings.
+        let keyHint: String?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1605,6 +1639,10 @@ private extension ChatPaletteView {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
+
+                    if let keyHint {
+                        ResolveKeycap(keyHint)
+                    }
 
                     Spacer(minLength: 8)
 
@@ -1657,6 +1695,10 @@ private extension ChatPaletteView {
         let selectionTint: Color
         let selectionTintOpacity: Double
         let summaryLineLimit: Int
+        /// Pre-formatted "⌘ N" string. Nil means no chip is rendered —
+        /// either because the card's index is past 5 or the user
+        /// disabled keyboard hint chips in Settings.
+        let keyHint: String?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1664,6 +1706,10 @@ private extension ChatPaletteView {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
+
+                    if let keyHint {
+                        ResolveKeycap(keyHint)
+                    }
 
                     Spacer(minLength: 8)
 

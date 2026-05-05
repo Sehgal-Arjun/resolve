@@ -48,7 +48,7 @@ struct RootPanelView: View {
 
     /// Builds the ⌘K command-menu action list dynamically from the
     /// current auth state and route. Items that wouldn't make sense for
-    /// the current view (e.g. "Back to Home" when already on home) are
+    /// the current view (e.g. "Go home" when already on home) are
     /// omitted rather than being shown disabled. The `keys` glyph for
     /// each row comes from the shortcut catalog (see
     /// `hotkeys/KeyboardShortcuts.swift`) so the menu and the rest of
@@ -69,7 +69,7 @@ struct RootPanelView: View {
             }
             if signedInRoute != .home {
                 actions.append(CmdKAction(
-                    id: "home", title: "Back to Home",
+                    id: "home", title: "Go home",
                     icon: "house", keys: keys("back")
                 ) {
                     signedInRoute = .home

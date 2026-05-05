@@ -118,9 +118,9 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
         KeyboardShortcut(
-            id: "back", label: "Back to home", keys: "⌘ B",
+            id: "back", label: "Go home", keys: "⌘ B",
             icon: "house",
-            surfaces: [.homeList, .cmdKMenu],
+            surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
             availability: .always
         ),
 
@@ -146,7 +146,7 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
         KeyboardShortcut(
-            id: "closeDrawer", label: "Close advocate drawer", keys: "⌘ ⎋",
+            id: "closeDrawer", label: "Close advocate drawer", keys: "⌘ esc",
             icon: "sidebar.right",
             surfaces: [.homeList, .cmdKMenu],
             availability: .always

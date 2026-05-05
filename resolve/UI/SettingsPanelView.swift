@@ -14,6 +14,7 @@ struct SettingsPanelView: View {
     }
 
     @State private var route: Route = .main
+    @State private var isBackButtonHovering = false
 
     private var panelWidth: CGFloat { settings.scaled(620) }
     private var panelHeight: CGFloat { settings.scaled(620) }
@@ -96,8 +97,14 @@ struct SettingsPanelView: View {
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
             .keyboardShortcut("b", modifiers: .command)
+            .help("Go home (⌘ B)")
+            .onHover { isBackButtonHovering = $0 }
 
+            // Hover-only hint: opacity-gated so layout doesn't shift
+            // when the chip appears.
             ResolveKeyHintChip("⌘ B")
+                .opacity(isBackButtonHovering ? 1 : 0)
+                .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
 
             Text(headerTitle)
                 .font(.system(size: 16, weight: .semibold))
