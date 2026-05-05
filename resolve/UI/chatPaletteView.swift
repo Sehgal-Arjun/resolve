@@ -30,6 +30,10 @@ struct ChatPaletteView: View {
     @State private var text = ""
     @State private var phase: Phase = .composing
     @State private var isBackButtonHovering = false
+    /// Briefly true after the user copies the arbiter summary; drives the
+    /// "Summary copied" toast at the top of the chat panel.
+    @State private var showCopiedToast = false
+    @State private var copiedToastDismissTask: Task<Void, Never>? = nil
     @State private var arbiterSummaryText = ""
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
@@ -312,6 +316,19 @@ struct ChatPaletteView: View {
             .clipShape(RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous))
 
             hiddenKeyboardShortcuts
+
+            if showCopiedToast {
+                copiedToast
+                    .padding(.top, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        )
+                    )
+            }
         }
         .tint(settings.resolvedAccentColor)
         .environment(\.resolveChatPhase, phaseString)
@@ -814,11 +831,51 @@ struct ChatPaletteView: View {
         .accessibilityHidden(true)
     }
 
+    /// Small floating chip that appears at the top of the chat panel
+    /// after ⌘⇧C copies the arbiter summary. Auto-dismissed by
+    /// `copiedToastDismissTask`.
+    private var copiedToast: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.green)
+            Text("Summary copied")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.thinMaterial)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 2)
+    }
+
     private func copyArbiterSummary() {
         guard !arbiterSummaryText.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(arbiterSummaryText, forType: .string)
+
+        // Trigger the "Summary copied" toast. Cancel any in-flight
+        // dismiss so rapid ⌘⇧C presses re-arm the timer instead of
+        // stacking dismissals.
+        copiedToastDismissTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            showCopiedToast = true
+        }
+        copiedToastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                showCopiedToast = false
+            }
+        }
     }
 
     private func exportChatAsMarkdown() {

@@ -11,6 +11,11 @@ struct CmdKAction: Identifiable {
     let icon: String
     let keys: String
     let action: () -> Void
+    /// True when the action's prerequisites aren't met (e.g. a chat
+    /// shortcut surfaced while the user is on the home route). The row
+    /// renders dim and ignores clicks/Return; it's still listed so the
+    /// shortcut stays discoverable.
+    var disabled: Bool = false
 }
 
 /// Spotlight-style command menu surfaced via ⌘K. Renders as a standalone
@@ -104,6 +109,7 @@ struct CmdKMenuView: View {
                             action: action,
                             isSelected: idx == selectedIndex
                         ) {
+                            guard !action.disabled else { return }
                             action.action()
                             onDismiss()
                         }
@@ -119,6 +125,7 @@ struct CmdKMenuView: View {
         guard !filteredActions.isEmpty else { return }
         let idx = max(0, min(selectedIndex, filteredActions.count - 1))
         let action = filteredActions[idx]
+        guard !action.disabled else { return }
         action.action()
         onDismiss()
     }
@@ -136,12 +143,12 @@ private struct CmdKActionRow: View {
             HStack(spacing: 12) {
                 Image(systemName: action.icon)
                     .font(.system(size: 14))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(action.disabled ? .tertiary : .secondary)
                     .frame(width: 20)
 
                 Text(action.title)
                     .font(.system(size: 13.5, weight: .medium))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(action.disabled ? .tertiary : .primary)
 
                 Spacer(minLength: 8)
 
@@ -153,12 +160,13 @@ private struct CmdKActionRow: View {
                         .padding(.vertical, 3)
                         .background(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(Color.white.opacity(0.06))
+                                .fill(Color.white.opacity(action.disabled ? 0.03 : 0.06))
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                                .strokeBorder(Color.white.opacity(action.disabled ? 0.05 : 0.10), lineWidth: 1)
                         )
+                        .opacity(action.disabled ? 0.6 : 1)
                 }
             }
             .padding(.horizontal, 12)
@@ -166,11 +174,21 @@ private struct CmdKActionRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected || isHovering ? Color.white.opacity(0.10) : Color.clear)
+                    .fill(highlightFill)
             )
         }
         .buttonStyle(.plain)
-        .onHover { isHovering = $0 }
+        // Disabled rows skip selection highlight on hover so they look
+        // inert. Selection highlight from keyboard navigation is
+        // suppressed too — `fireSelected` won't fire them, so a "lit"
+        // disabled row would lie about what Return does.
+        .onHover { isHovering = !action.disabled && $0 }
+        .help(action.disabled ? "Not available right now" : "")
+    }
+
+    private var highlightFill: Color {
+        guard !action.disabled else { return .clear }
+        return (isSelected || isHovering) ? Color.white.opacity(0.10) : .clear
     }
 }
 

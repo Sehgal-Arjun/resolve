@@ -102,44 +102,58 @@ struct RootPanelView: View {
 
             // Chat-context actions. The menu fires these via notifications;
             // ChatPaletteView listens and gates on its own active-panel
-            // identity + phase, so picking these from a non-chat route is
-            // a quiet no-op rather than a crash.
+            // identity + phase. Rows are grayed (and unfireable) whenever
+            // we're not on the chat route, so users can still see the
+            // chord but aren't misled into clicking a no-op.
+            let chatInactive = signedInRoute != .main
             actions.append(CmdKAction(
                 id: "resolve", title: "Resolve",
-                icon: "wand.and.stars", keys: keys("resolve")
-            ) {
-                NotificationCenter.default.post(name: resolveRoundNotification, object: nil)
-            })
+                icon: "wand.and.stars", keys: keys("resolve"),
+                action: {
+                    NotificationCenter.default.post(name: resolveRoundNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
             actions.append(CmdKAction(
                 id: "previousRound", title: "Previous round",
-                icon: "chevron.left.circle", keys: keys("previousRound")
-            ) {
-                NotificationCenter.default.post(name: previousRoundNotification, object: nil)
-            })
+                icon: "chevron.left.circle", keys: keys("previousRound"),
+                action: {
+                    NotificationCenter.default.post(name: previousRoundNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
             actions.append(CmdKAction(
                 id: "nextRound", title: "Next round",
-                icon: "chevron.right.circle", keys: keys("nextRound")
-            ) {
-                NotificationCenter.default.post(name: nextRoundNotification, object: nil)
-            })
+                icon: "chevron.right.circle", keys: keys("nextRound"),
+                action: {
+                    NotificationCenter.default.post(name: nextRoundNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
             actions.append(CmdKAction(
                 id: "closeDrawer", title: "Close advocate drawer",
-                icon: "sidebar.right", keys: keys("closeDrawer")
-            ) {
-                NotificationCenter.default.post(name: closeAdvocateDrawerNotification, object: nil)
-            })
+                icon: "sidebar.right", keys: keys("closeDrawer"),
+                action: {
+                    NotificationCenter.default.post(name: closeAdvocateDrawerNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
             actions.append(CmdKAction(
                 id: "copySummary", title: "Copy arbiter summary",
-                icon: "doc.on.doc", keys: keys("copySummary")
-            ) {
-                NotificationCenter.default.post(name: copyArbiterSummaryNotification, object: nil)
-            })
+                icon: "doc.on.doc", keys: keys("copySummary"),
+                action: {
+                    NotificationCenter.default.post(name: copyArbiterSummaryNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
             actions.append(CmdKAction(
                 id: "exportChat", title: "Export chat as markdown",
-                icon: "square.and.arrow.up", keys: keys("exportChat")
-            ) {
-                NotificationCenter.default.post(name: exportChatMarkdownNotification, object: nil)
-            })
+                icon: "square.and.arrow.up", keys: keys("exportChat"),
+                action: {
+                    NotificationCenter.default.post(name: exportChatMarkdownNotification, object: nil)
+                },
+                disabled: chatInactive
+            ))
 
             actions.append(CmdKAction(
                 id: "signout", title: "Sign Out",
