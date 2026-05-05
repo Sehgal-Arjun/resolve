@@ -30,10 +30,16 @@ struct ChatPaletteView: View {
     @State private var text = ""
     @State private var phase: Phase = .composing
     @State private var isBackButtonHovering = false
-    /// Briefly true after the user copies the arbiter summary; drives the
-    /// "Summary copied" toast at the top of the chat panel.
-    @State private var showCopiedToast = false
-    @State private var copiedToastDismissTask: Task<Void, Never>? = nil
+    /// Drives the small floating chip at the top of the chat panel for
+    /// "Summary copied", "Exported to Downloads", etc. Nil hides the
+    /// toast; a non-nil value renders it for ~1.3s and then clears.
+    @State private var toast: ChatToast? = nil
+    @State private var toastDismissTask: Task<Void, Never>? = nil
+
+    struct ChatToast: Equatable {
+        let message: String
+        let iconName: String
+    }
     @State private var arbiterSummaryText = ""
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
@@ -317,8 +323,8 @@ struct ChatPaletteView: View {
 
             hiddenKeyboardShortcuts
 
-            if showCopiedToast {
-                copiedToast
+            if let toast {
+                toastView(toast)
                     .padding(.top, 14)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .allowsHitTesting(false)
@@ -831,15 +837,15 @@ struct ChatPaletteView: View {
         .accessibilityHidden(true)
     }
 
-    /// Small floating chip that appears at the top of the chat panel
-    /// after ⌘⇧C copies the arbiter summary. Auto-dismissed by
-    /// `copiedToastDismissTask`.
-    private var copiedToast: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "checkmark.circle.fill")
+    /// Renders the floating toast chip (used for "Summary copied",
+    /// "Exported to Downloads", etc.).
+    private func toastView(_ toast: ChatToast) -> some View {
+        let isError = toast.iconName.contains("exclamationmark")
+        return HStack(spacing: 6) {
+            Image(systemName: toast.iconName)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.green)
-            Text("Summary copied")
+                .foregroundStyle(isError ? Color.orange : Color.green)
+            Text(toast.message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
         }
@@ -856,26 +862,28 @@ struct ChatPaletteView: View {
         .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 2)
     }
 
+    /// Show the toast for ~1.3s. Re-firing while one is already up
+    /// re-arms the dismiss timer instead of stacking dismissals.
+    private func showToast(message: String, iconName: String = "checkmark.circle.fill") {
+        toastDismissTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            toast = ChatToast(message: message, iconName: iconName)
+        }
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                toast = nil
+            }
+        }
+    }
+
     private func copyArbiterSummary() {
         guard !arbiterSummaryText.isEmpty else { return }
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(arbiterSummaryText, forType: .string)
-
-        // Trigger the "Summary copied" toast. Cancel any in-flight
-        // dismiss so rapid ⌘⇧C presses re-arm the timer instead of
-        // stacking dismissals.
-        copiedToastDismissTask?.cancel()
-        withAnimation(.easeOut(duration: 0.18)) {
-            showCopiedToast = true
-        }
-        copiedToastDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 1_300_000_000)
-            if Task.isCancelled { return }
-            withAnimation(.easeOut(duration: 0.25)) {
-                showCopiedToast = false
-            }
-        }
+        showToast(message: "Summary copied")
     }
 
     private func exportChatAsMarkdown() {
@@ -900,15 +908,29 @@ struct ChatPaletteView: View {
             }
         }
 
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.text]
-        panel.nameFieldStringValue = "resolve-chat.md"
-        panel.canCreateDirectories = true
-        panel.title = "Export chat"
+        // No NSSavePanel — Resolve is LSUIElement, and the modal
+        // file dialog interacts badly with the floating panel + the
+        // hide-on-focus-loss observer (manifests as a frozen app).
+        // Just write straight to ~/Downloads with a timestamped
+        // filename and confirm via the toast.
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard let downloads else {
+            print("ChatPaletteView.exportChatAsMarkdown: no Downloads directory")
+            showToast(message: "Couldn't find Downloads", iconName: "exclamationmark.triangle.fill")
+            return
+        }
 
-        panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
-            try? md.write(to: url, atomically: true, encoding: .utf8)
+        let stampFormatter = DateFormatter()
+        stampFormatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = stampFormatter.string(from: Date())
+        let url = downloads.appendingPathComponent("resolve-chat-\(stamp).md")
+
+        do {
+            try md.write(to: url, atomically: true, encoding: .utf8)
+            showToast(message: "Exported to Downloads")
+        } catch {
+            print("ChatPaletteView.exportChatAsMarkdown: write failed \(error.localizedDescription)")
+            showToast(message: "Export failed", iconName: "exclamationmark.triangle.fill")
         }
     }
 

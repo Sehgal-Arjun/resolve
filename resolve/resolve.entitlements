@@ -6,6 +6,11 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
+	<!-- Required so ⌘⇧E (Export chat as markdown) can write directly
+	     to ~/Downloads without an NSSavePanel. The sandbox would
+	     otherwise reject the write with EPERM. -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
 	<key>com.apple.security.network.client</key>
 	<true/>
 </dict>
