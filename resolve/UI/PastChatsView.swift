@@ -47,12 +47,19 @@ struct PastChatsView: View {
                     .keyboardShortcut("b", modifiers: .command)
                     .help("Go home (⌘ B)")
                     .onHover { isBackButtonHovering = $0 }
-
-                    // Hover-only hint: opacity-gated so layout doesn't
-                    // shift when the chip appears.
-                    ResolveKeyHintChip("⌘ B")
-                        .opacity(isBackButtonHovering ? 1 : 0)
-                        .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                    // Hover-only chip floats above the button via
+                    // overlay + offset so it doesn't take up
+                    // horizontal space in the header row.
+                    .overlay(alignment: .top) {
+                        if settings.showKeyboardHintChips {
+                            ResolveKeyHintChip("⌘ B")
+                                .fixedSize()
+                                .offset(y: -20)
+                                .opacity(isBackButtonHovering ? 1 : 0)
+                                .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                     Text("Past chats")
                         .font(.system(size: 16, weight: .semibold))

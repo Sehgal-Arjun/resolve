@@ -183,7 +183,13 @@ struct RootPanelView: View {
             NSApplication.shared.terminate(nil)
         })
 
-        return actions
+        // Push disabled rows to the bottom so the menu's enabled half
+        // stays compact at the top. `filter` preserves relative order
+        // within each partition, so the visible grouping each user
+        // built their muscle memory around is preserved among enabled
+        // rows; disabled rows trail in the same relative order they
+        // were declared.
+        return actions.filter { !$0.disabled } + actions.filter { $0.disabled }
     }
 
     var body: some View {
