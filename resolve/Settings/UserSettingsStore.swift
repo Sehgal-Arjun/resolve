@@ -497,6 +497,18 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    /// Advances the ambient stance glow setting through its cases
+    /// (off → subtle → pronounced → off → …) and returns the new value
+    /// so callers can surface a confirmation toast etc.
+    @discardableResult
+    func cycleAmbientStanceGlow() -> AmbientGlow {
+        let cases = AmbientGlow.allCases
+        let current = cases.firstIndex(of: ambientStanceGlow) ?? 0
+        let next = cases[(current + 1) % cases.count]
+        ambientStanceGlow = next
+        return next
+    }
+
     @Published var advocateCardDensity: AdvocateCardDensity {
         didSet {
             defaults.set(advocateCardDensity.rawValue, forKey: Keys.advocateCardDensity)

@@ -166,6 +166,14 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
 
+        // -- Appearance
+        KeyboardShortcut(
+            id: "cycleStanceGlow", label: "Cycle ambient stance glow", keys: "⌘ G",
+            icon: "circle.dashed",
+            surfaces: [.homeList, .cmdKMenu],
+            availability: .always
+        ),
+
         // -- App
         KeyboardShortcut(
             id: "quit", label: "Quit Resolve", keys: "⌘ Q",

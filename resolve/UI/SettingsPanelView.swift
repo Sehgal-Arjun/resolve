@@ -250,7 +250,7 @@ struct SettingsPanelView: View {
 
                 SettingsCustomRow(
                     title: "Ambient stance glow",
-                    subtitle: "A soft colored halo around the panel matching the dominant stance."
+                    subtitle: "A soft colored halo around the panel matching the dominant stance. Cycle with ⌘ G."
                 ) {
                     Picker("", selection: $settings.ambientStanceGlow) {
                         ForEach(AmbientGlow.allCases) { level in

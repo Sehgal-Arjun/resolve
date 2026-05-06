@@ -831,6 +831,10 @@ struct ChatPaletteView: View {
             Button("") { exportChatAsMarkdown() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
                 .disabled(arbiterSummaryText.isEmpty || lastSentText.isEmpty)
+
+            // ⌘ G — cycle the ambient stance glow setting
+            Button("") { cycleAmbientStanceGlow() }
+                .keyboardShortcut("g", modifiers: .command)
         }
         .opacity(0)
         .frame(width: 0, height: 0)
@@ -840,11 +844,15 @@ struct ChatPaletteView: View {
     /// Renders the floating toast chip (used for "Summary copied",
     /// "Exported to Downloads", etc.).
     private func toastView(_ toast: ChatToast) -> some View {
-        let isError = toast.iconName.contains("exclamationmark")
+        let iconColor: Color = {
+            if toast.iconName.contains("exclamationmark") { return .orange }
+            if toast.iconName.contains("checkmark") { return .green }
+            return .secondary
+        }()
         return HStack(spacing: 6) {
             Image(systemName: toast.iconName)
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isError ? Color.orange : Color.green)
+                .foregroundStyle(iconColor)
             Text(toast.message)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.primary)
@@ -884,6 +892,11 @@ struct ChatPaletteView: View {
         pasteboard.clearContents()
         pasteboard.setString(arbiterSummaryText, forType: .string)
         showToast(message: "Summary copied")
+    }
+
+    private func cycleAmbientStanceGlow() {
+        let next = settings.cycleAmbientStanceGlow()
+        showToast(message: "Stance glow: \(next.displayName)", iconName: "circle.dashed")
     }
 
     private func exportChatAsMarkdown() {

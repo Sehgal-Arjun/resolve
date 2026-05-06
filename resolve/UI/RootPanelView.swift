@@ -165,6 +165,14 @@ struct RootPanelView: View {
         }
 
         actions.append(CmdKAction(
+            id: "cycleStanceGlow", title: "Cycle ambient stance glow",
+            icon: "circle.dashed", keys: keys("cycleStanceGlow"),
+            action: {
+                UserSettingsStore.shared.cycleAmbientStanceGlow()
+            },
+            disabled: signedInRoute != .main
+        ))
+        actions.append(CmdKAction(
             id: "togglepalette", title: "Hide Resolve",
             icon: "sparkles", keys: keys("togglePalette")
         ) {
