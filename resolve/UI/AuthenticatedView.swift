@@ -85,14 +85,14 @@ struct AuthenticatedView: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("How does Resolve work?", keyHint: "⌘ H") {
+                    ResolveInlineLinkButton("How does Resolve work?") {
                         onHowItWorks()
                     }
 
                     Text("·")
                         .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("Sign Out", keyHint: "⌘ ⇧ S") {
+                    ResolveInlineLinkButton("Sign Out") {
                         onSignOut()
                     }
                 }
