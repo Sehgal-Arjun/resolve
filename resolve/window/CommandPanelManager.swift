@@ -34,6 +34,11 @@ final class CommandPanelManager {
         allControllers.contains { $0.isVisible }
     }
 
+    /// Public read-only counterpart of `anyVisible`. Used by code that
+    /// needs to know whether Resolve is on-screen — e.g. background
+    /// notifications that should only fire when the panel is hidden.
+    var hasVisiblePanel: Bool { anyVisible }
+
     func toggleAll() {
         if anyVisible {
             hideAll()

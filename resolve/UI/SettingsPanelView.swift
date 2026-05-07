@@ -506,6 +506,12 @@ struct SettingsPanelView: View {
                     isOn: $settings.hideOnFocusLoss
                 )
 
+                SettingsToggleRow(
+                    title: "Background notifications",
+                    subtitle: "Get a system notification when each round finishes (initial response, resolve rounds). Only fires when the panel is hidden.",
+                    isOn: $settings.notifyOnResolveComplete
+                )
+
                 SettingsCustomRow(
                     title: "Keyboard shortcuts",
                     subtitle: "Customize the global hotkeys Resolve responds to."

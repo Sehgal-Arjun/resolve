@@ -1476,6 +1476,21 @@ private extension ChatPaletteView {
         withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
             phase = .responded
         }
+
+        // Background notification: only when the user opted in AND the
+        // panel is hidden. If they're looking at the chat already, the
+        // toast/UI updates are feedback enough.
+        let notifyEnabled = settings.notifyOnResolveComplete
+        let panelHidden = !CommandPanelManager.shared.hasVisiblePanel
+        print("ChatPaletteView: round-complete notif gate — enabled=\(notifyEnabled) panelHidden=\(panelHidden)")
+        if notifyEnabled, panelHidden {
+            let roundIdx = run.runIndex ?? max(roundSnapshots.count - 1, 0)
+            let stageLabel = roundIdx == 0 ? "Initial debate done" : "Resolve round \(roundIdx)"
+            ResolveNotifications.shared.postStageComplete(
+                stage: stageLabel,
+                bodyPreview: arbiterSummaryText
+            )
+        }
     }
 
     @MainActor

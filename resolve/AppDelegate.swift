@@ -1,6 +1,15 @@
 import Cocoa
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        // Touch the notifications singleton early so its
+        // `UNUserNotificationCenter.delegate` registration runs
+        // before any chat round can complete. Without this, the
+        // first notification's `willPresent` falls back to default
+        // suppression behavior.
+        _ = ResolveNotifications.shared
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             print("AppDelegate open URL:", url.absoluteString)

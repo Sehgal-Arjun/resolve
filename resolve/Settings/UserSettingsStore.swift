@@ -398,6 +398,7 @@ final class UserSettingsStore: ObservableObject {
         static let arbiterTextSize = "settings.arbiterTextSize"
         static let boldEmphasisStyle = "settings.boldEmphasisStyle"
         static let hideOnFocusLoss = "settings.hideOnFocusLoss"
+        static let notifyOnResolveComplete = "settings.notifyOnResolveComplete"
         static let panelSize = "settings.panelSize"
         static let panelAnchor = "settings.panelAnchor"
         static let lastPanelFrame = "settings.lastPanelFrame"
@@ -545,6 +546,16 @@ final class UserSettingsStore: ObservableObject {
         }
     }
 
+    /// When true, Resolve posts a macOS user notification at the end of
+    /// each chat stage (initial response and each resolve round) — but
+    /// only while the panel is hidden, so visible work doesn't get
+    /// noisy. The notification body includes which stage just finished.
+    @Published var notifyOnResolveComplete: Bool {
+        didSet {
+            defaults.set(notifyOnResolveComplete, forKey: Keys.notifyOnResolveComplete)
+        }
+    }
+
     @Published var panelSize: PanelSize {
         didSet {
             defaults.set(panelSize.rawValue, forKey: Keys.panelSize)
@@ -620,6 +631,7 @@ final class UserSettingsStore: ObservableObject {
         boldEmphasisStyle = storedEmphasis.flatMap(BoldEmphasisStyle.init(rawValue:)) ?? .bold
 
         hideOnFocusLoss = (defaults.object(forKey: Keys.hideOnFocusLoss) as? Bool) ?? false
+        notifyOnResolveComplete = (defaults.object(forKey: Keys.notifyOnResolveComplete) as? Bool) ?? false
 
         let storedSize = defaults.string(forKey: Keys.panelSize)
         panelSize = storedSize.flatMap(PanelSize.init(rawValue:)) ?? .comfortable
@@ -661,6 +673,7 @@ final class UserSettingsStore: ObservableObject {
         arbiterTextSize = .medium
         boldEmphasisStyle = .bold
         hideOnFocusLoss = false
+        notifyOnResolveComplete = false
         panelSize = .comfortable
         panelAnchor = .lastPosition
     }
