@@ -22,6 +22,10 @@ struct RootPanelView: View {
     /// completion. This `@State` is what flips true on every sign-out (so
     /// the unfurl + sign-in card play again) and false on `onComplete`.
     @State private var inOnboarding: Bool = !UserSettingsStore.shared.hasCompletedOnboarding
+    /// Drives the "Sign out?" confirmation card. Triggered by the
+    /// Sign Out link, the ⌘⇧S shortcut, and the ⌘K menu row — all
+    /// route through this so the user can't sign out by accident.
+    @State private var showSignOutConfirmation = false
     @Environment(\.resolvePanelController) private var panelController
 
     private var isPrimaryPanel: Bool {
@@ -86,7 +90,7 @@ struct RootPanelView: View {
             if signedInRoute != .howItWorks {
                 actions.append(CmdKAction(
                     id: "howitworks", title: "How Resolve Works",
-                    icon: "questionmark.circle", keys: ""
+                    icon: "questionmark.circle", keys: keys("howItWorks")
                 ) {
                     signedInRoute = .howItWorks
                 })
@@ -156,11 +160,10 @@ struct RootPanelView: View {
             ))
 
             actions.append(CmdKAction(
-                id: "signout", title: "Sign Out",
-                icon: "rectangle.portrait.and.arrow.right", keys: ""
+                id: "signout", title: "Sign out",
+                icon: "rectangle.portrait.and.arrow.right", keys: keys("signOut")
             ) {
-                signedInRoute = .home
-                authManager.signOut()
+                showSignOutConfirmation = true
             })
         }
 
@@ -201,74 +204,14 @@ struct RootPanelView: View {
     }
 
     var body: some View {
-        Group {
-            if shouldShowOnboarding {
-                OnboardingFlowView(onComplete: { diveInAfter in
-                    settings.hasCompletedOnboarding = true
-                    inOnboarding = false
-                    if diveInAfter {
-                        signedInRoute = .main
-                    } else {
-                        // Reset to home so a user replaying from Settings
-                        // doesn't land back inside Settings after the flow.
-                        signedInRoute = .home
-                    }
-                })
-            } else if authManager.isAuthenticated, let user = authManager.currentUser {
-                switch signedInRoute {
-                case .home:
-                    AuthenticatedView(
-                        user: user,
-                        isPrimary: isPrimaryPanel,
-                        onDiveIn: { signedInRoute = .main },
-                        onPastChats: { signedInRoute = .pastChats },
-                        onHowItWorks: { signedInRoute = .howItWorks },
-                        onSettings: { signedInRoute = .settings },
-                        onSignOut: {
-                            signedInRoute = .home
-                            authManager.signOut()
-                        }
-                    )
-                case .pastChats:
-                    PastChatsView(
-                        onBack: { signedInRoute = .home },
-                        onOpenConversation: { conversationId in
-                            selectedConversationId = conversationId
-                            signedInRoute = .main
-                        }
-                    )
-                case .howItWorks:
-                    HowResolveWorksView(onBack: { signedInRoute = .home })
-                case .settings:
-                    SettingsPanelView(onBack: { signedInRoute = .home })
-                case .main:
-                    MainAppPanelView(
-                        initialConversationId: selectedConversationId,
-                        onBack: {
-                            selectedConversationId = nil
-                            signedInRoute = .home
-                        }
-                    )
+        routeContent
+            .background { hiddenGlobalShortcuts }
+            .overlay {
+                if showSignOutConfirmation {
+                    signOutConfirmationOverlay
+                        .transition(.opacity)
                 }
-            } else if authManager.isLoadingAuth {
-                Text("Signing in...")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
             }
-        }
-        .background {
-            // Hidden ⌘K trigger. Lives in `.background` so it doesn't
-            // affect layout but still lives in the SwiftUI hierarchy
-            // when the panel is the key window. The menu itself opens
-            // as a separate, screen-centered window — see CmdKWindowController.
-            Button("") {
-                CmdKWindowController.shared.toggle(actions: cmdKActions)
-            }
-            .keyboardShortcut("k", modifiers: .command)
-            .opacity(0)
-            .frame(width: 0, height: 0)
-            .accessibilityHidden(true)
-        }
         .environmentObject(authManager)
         .tint(settings.resolvedAccentColor)
         .onChange(of: settings.cornerRadiusStyle) { _, _ in
@@ -343,6 +286,180 @@ struct RootPanelView: View {
             if let token = openSettingsToken {
                 NotificationCenter.default.removeObserver(token)
             }
+        }
+    }
+
+    /// Top-level route dispatch — onboarding vs. signed-in vs. loading.
+    /// Extracted from `body` so the type checker has a smaller chunk to
+    /// chew on; SwiftUI's body inference times out on the original
+    /// inlined version.
+    @ViewBuilder
+    private var routeContent: some View {
+        if shouldShowOnboarding {
+            OnboardingFlowView(onComplete: { diveInAfter in
+                settings.hasCompletedOnboarding = true
+                inOnboarding = false
+                if diveInAfter {
+                    signedInRoute = .main
+                } else {
+                    // Reset to home so a user replaying from Settings
+                    // doesn't land back inside Settings after the flow.
+                    signedInRoute = .home
+                }
+            })
+        } else if authManager.isAuthenticated, let user = authManager.currentUser {
+            signedInContent(user: user)
+        } else if authManager.isLoadingAuth {
+            Text("Signing in...")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private func signedInContent(user: AuthManager.ClerkUser) -> some View {
+        switch signedInRoute {
+        case .home:
+            AuthenticatedView(
+                user: user,
+                isPrimary: isPrimaryPanel,
+                onDiveIn: { signedInRoute = .main },
+                onPastChats: { signedInRoute = .pastChats },
+                onHowItWorks: { signedInRoute = .howItWorks },
+                onSettings: { signedInRoute = .settings },
+                onSignOut: { showSignOutConfirmation = true }
+            )
+        case .pastChats:
+            PastChatsView(
+                onBack: { signedInRoute = .home },
+                onOpenConversation: { conversationId in
+                    selectedConversationId = conversationId
+                    signedInRoute = .main
+                }
+            )
+        case .howItWorks:
+            HowResolveWorksView(onBack: { signedInRoute = .home })
+        case .settings:
+            SettingsPanelView(onBack: { signedInRoute = .home })
+        case .main:
+            MainAppPanelView(
+                initialConversationId: selectedConversationId,
+                onBack: {
+                    selectedConversationId = nil
+                    signedInRoute = .home
+                }
+            )
+        }
+    }
+
+    /// Hidden 0×0 buttons that capture global key chords while the
+    /// panel is the key window. Lives in `.background` so it doesn't
+    /// affect layout.
+    private var hiddenGlobalShortcuts: some View {
+        Group {
+            // ⌘ K — open the command menu
+            Button("") {
+                CmdKWindowController.shared.toggle(actions: cmdKActions)
+            }
+            .keyboardShortcut("k", modifiers: .command)
+
+            // ⌘ H — jump to the "How Resolve Works" page
+            Button("") { signedInRoute = .howItWorks }
+                .keyboardShortcut("h", modifiers: .command)
+                .disabled(!authManager.isAuthenticated || signedInRoute == .howItWorks)
+
+            // ⌘ ⇧ S — open the sign-out confirmation
+            Button("") { showSignOutConfirmation = true }
+                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .disabled(!authManager.isAuthenticated || showSignOutConfirmation)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// Sign-out confirmation card. Tapping the dim backdrop or pressing
+    /// Esc cancels; ⌘↵ confirms and signs out. Lives as an `.overlay`
+    /// on the root, so it covers every route and disappears the moment
+    /// the user dismisses or completes it.
+    private var signOutConfirmationOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.45)
+                .ignoresSafeArea()
+                .onTapGesture { showSignOutConfirmation = false }
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Sign out?")
+                    .font(.system(size: 16, weight: .semibold))
+
+                Text("You'll need to sign in again to use Resolve.")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    Spacer(minLength: 0)
+
+                    Button {
+                        showSignOutConfirmation = false
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Cancel")
+                            if settings.showKeyboardHintChips {
+                                Text("esc")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+                    .keyboardShortcut(.cancelAction)
+
+                    Button {
+                        showSignOutConfirmation = false
+                        signedInRoute = .home
+                        authManager.signOut()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("Sign out")
+                            if settings.showKeyboardHintChips {
+                                Text("⌘ ↵")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundStyle(.primary.opacity(0.85))
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .foregroundStyle(.white)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.red.opacity(0.85))
+                    )
+                    .keyboardShortcut(.return, modifiers: .command)
+                }
+            }
+            .padding(20)
+            .frame(width: 360)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(settings.panelTranslucency.material)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.15), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.45), radius: 30, x: 0, y: 8)
         }
     }
 }

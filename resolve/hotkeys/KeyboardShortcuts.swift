@@ -123,6 +123,18 @@ enum KeyboardShortcutCatalog {
             surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
             availability: .always
         ),
+        KeyboardShortcut(
+            id: "howItWorks", label: "How Resolve Works", keys: "⌘ H",
+            icon: "questionmark.circle",
+            surfaces: [.homeList, .cmdKMenu],
+            availability: .always
+        ),
+        KeyboardShortcut(
+            id: "signOut", label: "Sign out", keys: "⌘ ⇧ S",
+            icon: "rectangle.portrait.and.arrow.right",
+            surfaces: [.homeList, .cmdKMenu],
+            availability: .always
+        ),
 
         // -- Chat: round navigation
         KeyboardShortcut(

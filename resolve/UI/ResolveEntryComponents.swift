@@ -61,12 +61,15 @@ struct ResolvePrimaryButtonStyle: ButtonStyle {
 
 struct ResolveInlineLinkButton: View {
     let title: String
+    let keyHint: String?
     let action: () -> Void
 
     @State private var isHovering = false
+    @ObservedObject private var settings = UserSettingsStore.shared
 
-    init(_ title: String, action: @escaping () -> Void) {
+    init(_ title: String, keyHint: String? = nil, action: @escaping () -> Void) {
         self.title = title
+        self.keyHint = keyHint
         self.action = action
     }
 
@@ -81,6 +84,18 @@ struct ResolveInlineLinkButton: View {
             isHovering = hovering
         }
         .animation(.easeOut(duration: 0.12), value: isHovering)
+        // Hover-only chip floats above the link via overlay+offset so
+        // it doesn't take up horizontal space in the row.
+        .overlay(alignment: .top) {
+            if let keyHint, settings.showKeyboardHintChips {
+                ResolveKeyHintChip(keyHint)
+                    .fixedSize()
+                    .offset(y: -20)
+                    .opacity(isHovering ? 1 : 0)
+                    .animation(.easeOut(duration: 0.12), value: isHovering)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
