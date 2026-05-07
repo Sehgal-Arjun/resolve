@@ -37,3 +37,15 @@ let openSettingsNotification = NSNotification.Name("resolve.openSettings")
 /// Posted whenever the toggle-palette shortcut (default ⌘ ;) fires. The
 /// onboarding flow listens for this to detect the hide/show gesture.
 let togglePaletteUsedNotification = NSNotification.Name("resolve.togglePaletteUsed")
+
+// Chat-context shortcuts that the ⌘K command menu wants to surface. Each
+// posts a notification rather than calling chat code directly, so the
+// menu doesn't need a handle to the active chat view. `ChatPaletteView`
+// listens for these and routes them to its existing handlers, gated on
+// active-panel identity and current phase the same way `resolveRound`
+// is.
+let previousRoundNotification = NSNotification.Name("resolve.previousRound")
+let nextRoundNotification = NSNotification.Name("resolve.nextRound")
+let closeAdvocateDrawerNotification = NSNotification.Name("resolve.closeAdvocateDrawer")
+let copyArbiterSummaryNotification = NSNotification.Name("resolve.copyArbiterSummary")
+let exportChatMarkdownNotification = NSNotification.Name("resolve.exportChatMarkdown")

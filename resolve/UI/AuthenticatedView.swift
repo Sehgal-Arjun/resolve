@@ -85,18 +85,22 @@ struct AuthenticatedView: View {
                     Text("·")
                         .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("How does Resolve work?") {
+                    ResolveInlineLinkButton("How does Resolve work?", keyHint: "⌘ H") {
                         onHowItWorks()
                     }
 
                     Text("·")
                         .foregroundStyle(.tertiary)
 
-                    ResolveInlineLinkButton("Sign Out") {
+                    ResolveInlineLinkButton("Sign Out", keyHint: "⌘ ⇧ S") {
                         onSignOut()
                     }
                 }
 
+                // Keyboard shortcuts list grows to fill the panel's
+                // remaining vertical slack (where the trailing Spacer
+                // used to sit). Long catalog → bottom row gets clipped
+                // by the viewport edge, signalling the user to scroll.
                 keyboardShortcuts
 
                 if !isPrimary {
@@ -106,8 +110,6 @@ struct AuthenticatedView: View {
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 4)
                 }
-
-                Spacer(minLength: 0)
             }
             .padding(22)
             .frame(width: cardWidth, height: panelHeight, alignment: .topLeading)
@@ -154,27 +156,33 @@ struct AuthenticatedView: View {
     }
 
     private var keyboardShortcuts: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        // Source-of-truth list lives in `hotkeys/KeyboardShortcuts.swift`.
+        let context = KeyboardShortcutContext(
+            isPrimaryPanel: isPrimary,
+            canCloseInstance: canCloseInstance
+        )
+        let entries = KeyboardShortcutCatalog.shortcuts(for: .homeList, context: context)
+
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Keyboard shortcuts")
                 .font(.system(size: 12, weight: .regular))
                 .foregroundStyle(.tertiary)
 
-            VStack(spacing: 6) {
-                ShortcutRow(label: "Toggle visibility", keys: "⌘ ;")
-                ShortcutRow(label: "Get started", keys: "⌘ N")
-                ShortcutRow(label: "Resolve", keys: "⌘ ⇧ R")
-                ShortcutRow(label: "New Instance", keys: "⌘ ⇧ N")
-                if canCloseInstance {
-                    ShortcutRow(label: "Close instance", keys: "⌘ W")
-                }
-                if isPrimary {
-                    ShortcutRow(label: "Settings", keys: "⌘ ,")
-                } else {
-                    ShortcutRow(label: "Focus original", keys: "⌘ ⇧ O")
+            // Fills the vertical slack the panel already has below this
+            // section (the parent VStack's Spacer was eating it). When
+            // the catalog overflows, the bottom row gets clipped by the
+            // viewport edge — that visible cut is the scroll cue.
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 6) {
+                    ForEach(entries) { entry in
+                        ShortcutRow(label: entry.label, keys: entry.keys)
+                    }
                 }
             }
+            .frame(maxHeight: .infinity)
         }
         .padding(.top, 4)
+        .frame(maxHeight: .infinity, alignment: .top)
     }
 }
 

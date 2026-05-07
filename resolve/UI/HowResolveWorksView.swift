@@ -7,6 +7,8 @@ struct HowResolveWorksView: View {
 
     @ObservedObject private var settings = UserSettingsStore.shared
 
+    @State private var isBackButtonHovering = false
+
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: settings.cornerRadius(cardCornerRadius), style: .continuous)
@@ -27,6 +29,22 @@ struct HowResolveWorksView: View {
                                 .foregroundStyle(.secondary)
                         }
                         .buttonStyle(.plain)
+                        .keyboardShortcut("b", modifiers: .command)
+                        .help("Go home (⌘ B)")
+                        .onHover { isBackButtonHovering = $0 }
+                        // Hover-only chip floats above the button via
+                        // overlay + offset so it doesn't take up
+                        // horizontal space in the header row.
+                        .overlay(alignment: .top) {
+                            if settings.showKeyboardHintChips {
+                                ResolveKeyHintChip("⌘ B")
+                                    .fixedSize()
+                                    .offset(y: -20)
+                                    .opacity(isBackButtonHovering ? 1 : 0)
+                                    .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                                    .allowsHitTesting(false)
+                            }
+                        }
 
                         Text("How Resolve Works")
                             .font(.system(size: 20, weight: .semibold))

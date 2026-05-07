@@ -1,4 +1,6 @@
 import SwiftUI
+import AppKit
+import UniformTypeIdentifiers
 
 fileprivate struct RoundSnapshot {
     let runId: UUID
@@ -27,6 +29,17 @@ struct ChatPaletteView: View {
 
     @State private var text = ""
     @State private var phase: Phase = .composing
+    @State private var isBackButtonHovering = false
+    /// Drives the small floating chip at the top of the chat panel for
+    /// "Summary copied", "Exported to Downloads", etc. Nil hides the
+    /// toast; a non-nil value renders it for ~1.3s and then clears.
+    @State private var toast: ChatToast? = nil
+    @State private var toastDismissTask: Task<Void, Never>? = nil
+
+    struct ChatToast: Equatable {
+        let message: String
+        let iconName: String
+    }
     @State private var arbiterSummaryText = ""
     @State private var isArbiterThinking = false
     @State private var roundIndex: Int = 0
@@ -307,6 +320,21 @@ struct ChatPaletteView: View {
             }
             .padding(18)
             .clipShape(RoundedRectangle(cornerRadius: settings.cornerRadius(16), style: .continuous))
+
+            hiddenKeyboardShortcuts
+
+            if let toast {
+                toastView(toast)
+                    .padding(.top, 14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .allowsHitTesting(false)
+                    .transition(
+                        .asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        )
+                    )
+            }
         }
         .tint(settings.resolvedAccentColor)
         .environment(\.resolveChatPhase, phaseString)
@@ -349,6 +377,28 @@ struct ChatPaletteView: View {
             guard let panelController else { return }
             guard CommandPanelController.shared === panelController else { return }
             triggerResolveRound(source: "notification")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: previousRoundNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            guard canGoBackRound else { return }
+            goToPreviousRound()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: nextRoundNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            guard canGoForwardRound else { return }
+            goToNextRound()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: closeAdvocateDrawerNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            selectedAdvocateId = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: copyArbiterSummaryNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            copyArbiterSummary()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: exportChatMarkdownNotification)) { _ in
+            guard let panelController, CommandPanelController.shared === panelController else { return }
+            exportChatAsMarkdown()
         }
     }
 
@@ -479,7 +529,7 @@ struct ChatPaletteView: View {
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ForEach(advocates) { advocate in
+                ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                     Button {
                         toggleAdvocateSelection(advocate)
                     } label: {
@@ -492,7 +542,8 @@ struct ChatPaletteView: View {
                             cornerRadius: settings.cornerRadius(10),
                             selectionTint: settings.resolvedAccentColor,
                             selectionTintOpacity: selectedAdvocateBorderOpacity,
-                            summaryLineLimit: settings.advocateCardDensity.summaryLineLimit
+                            summaryLineLimit: settings.advocateCardDensity.summaryLineLimit,
+                            keyHint: (idx < 5 && settings.showKeyboardHintChips) ? "⌘ \(idx + 1)" : nil
                         )
                     }
                     .buttonStyle(.plain)
@@ -567,6 +618,10 @@ struct ChatPaletteView: View {
 
                 Spacer()
 
+                if settings.showKeyboardHintChips {
+                    ResolveKeycap("⌘ esc")
+                }
+
                 Button {
                     selectedAdvocateId = nil
                 } label: {
@@ -583,6 +638,7 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
+                .help("Close drawer (⌘ esc)")
             }
 
             Text("Detailed reasoning")
@@ -684,7 +740,7 @@ struct ChatPaletteView: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 8) {
-                        ForEach(advocates) { advocate in
+                        ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                             Button {
                                 toggleAdvocateSelection(advocate)
                             } label: {
@@ -697,7 +753,8 @@ struct ChatPaletteView: View {
                                     cornerRadius: settings.cornerRadius(10),
                                     selectionTint: settings.resolvedAccentColor,
                                     selectionTintOpacity: selectedAdvocateBorderOpacity,
-                                    summaryLineLimit: settings.advocateCardDensity.thesisLineLimit
+                                    summaryLineLimit: settings.advocateCardDensity.thesisLineLimit,
+                                    keyHint: (idx < 5 && settings.showKeyboardHintChips) ? "⌘ \(idx + 1)" : nil
                                 )
                             }
                             .buttonStyle(.plain)
@@ -716,6 +773,178 @@ struct ChatPaletteView: View {
 
     private var displayedRoundNumber: Int {
         roundSnapshots.isEmpty ? 1 : viewedRoundIndex + 1
+    }
+
+    /// Static lookup for ⌘1–⌘5 advocate-drawer shortcuts. Indexing into a
+    /// fixed array keeps the compiler happy across Swift versions and
+    /// hard-caps the panel at 5 advocate slots.
+    private static let advocateNumberKeys: [KeyEquivalent] = [
+        KeyEquivalent("1"), KeyEquivalent("2"), KeyEquivalent("3"),
+        KeyEquivalent("4"), KeyEquivalent("5")
+    ]
+
+    /// Hidden buttons that capture chat-only keyboard shortcuts. Each one
+    /// is a 0×0 invisible button — SwiftUI still routes the matching key
+    /// chord to its action when the chat panel is the key window. Local
+    /// scope: pressing these chords in another app does nothing to Resolve.
+    @ViewBuilder
+    private var hiddenKeyboardShortcuts: some View {
+        Group {
+            // ⌘ B — go home (only when this chat was opened with a back
+            // affordance, e.g. via Past Chats).
+            Button("") { onBack?() }
+                .keyboardShortcut("b", modifiers: .command)
+                .disabled(onBack == nil)
+
+            // ⌘ [ — previous resolve round
+            Button("") { goToPreviousRound() }
+                .keyboardShortcut("[", modifiers: .command)
+                .disabled(!canGoBackRound)
+
+            // ⌘ ] — next resolve round
+            Button("") { goToNextRound() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(!canGoForwardRound)
+
+            // ⌘ ⎋ — close advocate drawer
+            Button("") { selectedAdvocateId = nil }
+                .keyboardShortcut(.escape, modifiers: .command)
+                .disabled(selectedAdvocateId == nil)
+
+            // ⌘ 1–5 — open the Nth advocate's drawer
+            ForEach(0..<5, id: \.self) { idx in
+                Button("") {
+                    let list = advocates
+                    guard idx < list.count else { return }
+                    selectedAdvocateId = list[idx].id
+                }
+                .keyboardShortcut(Self.advocateNumberKeys[idx], modifiers: .command)
+                .disabled(idx >= advocates.count)
+            }
+
+            // ⌘ ⇧ C — copy arbiter summary to clipboard
+            Button("") { copyArbiterSummary() }
+                .keyboardShortcut("c", modifiers: [.command, .shift])
+                .disabled(arbiterSummaryText.isEmpty)
+
+            // ⌘ ⇧ E — export the entire chat as markdown
+            Button("") { exportChatAsMarkdown() }
+                .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(arbiterSummaryText.isEmpty || lastSentText.isEmpty)
+
+            // ⌘ G — cycle the ambient stance glow setting
+            Button("") { cycleAmbientStanceGlow() }
+                .keyboardShortcut("g", modifiers: .command)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
+    }
+
+    /// Renders the floating toast chip (used for "Summary copied",
+    /// "Exported to Downloads", etc.).
+    private func toastView(_ toast: ChatToast) -> some View {
+        let iconColor: Color = {
+            if toast.iconName.contains("exclamationmark") { return .orange }
+            if toast.iconName.contains("checkmark") { return .green }
+            return .secondary
+        }()
+        return HStack(spacing: 6) {
+            Image(systemName: toast.iconName)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(iconColor)
+            Text(toast.message)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.primary)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 7)
+        .background(
+            Capsule(style: .continuous)
+                .fill(.thinMaterial)
+        )
+        .overlay(
+            Capsule(style: .continuous)
+                .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 2)
+    }
+
+    /// Show the toast for ~1.3s. Re-firing while one is already up
+    /// re-arms the dismiss timer instead of stacking dismissals.
+    private func showToast(message: String, iconName: String = "checkmark.circle.fill") {
+        toastDismissTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            toast = ChatToast(message: message, iconName: iconName)
+        }
+        toastDismissTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_300_000_000)
+            if Task.isCancelled { return }
+            withAnimation(.easeOut(duration: 0.25)) {
+                toast = nil
+            }
+        }
+    }
+
+    private func copyArbiterSummary() {
+        guard !arbiterSummaryText.isEmpty else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(arbiterSummaryText, forType: .string)
+        showToast(message: "Summary copied")
+    }
+
+    private func cycleAmbientStanceGlow() {
+        let next = settings.cycleAmbientStanceGlow()
+        showToast(message: "Stance glow: \(next.displayName)", iconName: "circle.dashed")
+    }
+
+    private func exportChatAsMarkdown() {
+        guard !arbiterSummaryText.isEmpty, !lastSentText.isEmpty else { return }
+
+        var md = "# Resolve Chat\n\n"
+        md += "## Question\n\n"
+        md += "\(lastSentText)\n\n"
+        md += "## Arbiter Summary\n\n"
+        md += "\(arbiterSummaryText)\n\n"
+
+        if !advocates.isEmpty {
+            md += "## Advocate Responses\n\n"
+            for advocate in advocates {
+                md += "### \(advocate.providerName)\n\n"
+                if !advocate.summary.isEmpty {
+                    md += "**Summary:** \(advocate.summary)\n\n"
+                }
+                if !advocate.explanation.isEmpty {
+                    md += "\(advocate.explanation)\n\n"
+                }
+            }
+        }
+
+        // No NSSavePanel — Resolve is LSUIElement, and the modal
+        // file dialog interacts badly with the floating panel + the
+        // hide-on-focus-loss observer (manifests as a frozen app).
+        // Just write straight to ~/Downloads with a timestamped
+        // filename and confirm via the toast.
+        let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard let downloads else {
+            print("ChatPaletteView.exportChatAsMarkdown: no Downloads directory")
+            showToast(message: "Couldn't find Downloads", iconName: "exclamationmark.triangle.fill")
+            return
+        }
+
+        let stampFormatter = DateFormatter()
+        stampFormatter.dateFormat = "yyyyMMdd-HHmmss"
+        let stamp = stampFormatter.string(from: Date())
+        let url = downloads.appendingPathComponent("resolve-chat-\(stamp).md")
+
+        do {
+            try md.write(to: url, atomically: true, encoding: .utf8)
+            showToast(message: "Exported to Downloads")
+        } catch {
+            print("ChatPaletteView.exportChatAsMarkdown: write failed \(error.localizedDescription)")
+            showToast(message: "Export failed", iconName: "exclamationmark.triangle.fill")
+        }
     }
 
     private var roundNavigationView: some View {
@@ -738,11 +967,20 @@ struct ChatPaletteView: View {
             )
             .opacity(canGoBackRound ? 1.0 : 0.35)
             .disabled(!canGoBackRound)
+            .help("Previous round (⌘ [)")
+
+            if canGoBackRound && settings.showKeyboardHintChips {
+                ResolveKeycap("⌘ [")
+            }
 
             Text("\(displayedRoundNumber)/\(displayedRoundCount)")
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(.secondary)
                 .frame(minWidth: 26)
+
+            if canGoForwardRound && settings.showKeyboardHintChips {
+                ResolveKeycap("⌘ ]")
+            }
 
             Button {
                 goToNextRound()
@@ -762,6 +1000,7 @@ struct ChatPaletteView: View {
             )
             .opacity(canGoForwardRound ? 1.0 : 0.35)
             .disabled(!canGoForwardRound)
+            .help("Next round (⌘ ])")
         }
     }
 
@@ -825,6 +1064,22 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .fill(Color.white.opacity(0.08))
                 )
+                .help("Go home (⌘ B)")
+                .onHover { isBackButtonHovering = $0 }
+                // Hover-only chip: overlay alignment + offset keeps it
+                // out of the layout flow so the button stays 32×32 and
+                // aligned with the rest of the input bar. Fades in on
+                // hover, fades out otherwise.
+                .overlay(alignment: .top) {
+                    if settings.showKeyboardHintChips {
+                        ResolveKeycap("⌘ B")
+                            .fixedSize()
+                            .offset(y: -20)
+                            .opacity(isBackButtonHovering ? 1 : 0)
+                            .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                            .allowsHitTesting(false)
+                    }
+                }
             }
 
             Button(action: startNewConversation) {
@@ -1238,6 +1493,21 @@ private extension ChatPaletteView {
     }
 
     @MainActor
+    func showEmptyHistoricalState(hasLastUser: Bool) {
+        arbiterSummaryText = "No saved outputs for this chat."
+        advocateResults = []
+        classifierGroups = []
+        mcqDisagreement = nil
+        showHistoricalEmptyState = true
+        allowPlaceholderAdvocates = false
+        isArbiterThinking = false
+        isResolveRoundInFlight = false
+        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
+            phase = hasLastUser ? .responded : .composing
+        }
+    }
+
+    @MainActor
     private func applySnapshot(_ snapshot: RoundSnapshot) {
         arbiterSummaryText = snapshot.arbiterSummaryText
         advocateResults = snapshot.advocateResults
@@ -1268,27 +1538,37 @@ private extension ChatPaletteView {
         return ["complete", "completed", "succeeded", "success", "done"].contains(status)
     }
 
-    func pickHistoricalRun(from messages: [MessageRow]) -> (id: UUID, status: String?, source: String)? {
-        let sorted = messages.sorted { $0.createdAt > $1.createdAt }
-        for message in sorted {
-            print("ChatPaletteView.pickHistoricalRun: message=\(message)")
-            if let runId = message.latestCompletedRunId {
-                let status = message.latestCompletedRunStatus ?? message.status ?? message.latestRunStatus
-                return (runId, status, "latest_completed_run_id")
+    /// Pure-ish snapshot factory. Mirrors the per-run derivations done by
+    /// `applyRunResult` so historical hydration can build snapshots for
+    /// many runs without thrashing UI state in between.
+    @MainActor
+    func makeRoundSnapshot(from run: RunResult) -> RoundSnapshot {
+        let arbiter = arbiterText(from: run.arbiterOutput) ?? "No response returned."
+        let advocates = mapAdvocates(from: run)
+        let groups = run.classifierOutput?.outputJson.groups ?? []
+
+        let derivedProblemType: ProblemType
+        if let pt = run.promptType?.lowercased() {
+            if pt.contains("multi") {
+                derivedProblemType = .multipleChoiceMulti
+            } else if pt.contains("single") || pt.contains("mcq") {
+                derivedProblemType = .multipleChoiceSingle
+            } else {
+                derivedProblemType = .generalQuestion
             }
-            guard let runId = message.runId else { continue }
-            let status = message.runStatus ?? message.status ?? message.latestRunStatus
-            if isCompletedRunStatus(status) {
-                return (runId, status, "run_id")
-            }
-            if let fallback = message.latestRunId {
-                let fallbackStatus = message.latestRunStatus ?? message.status
-                if isCompletedRunStatus(fallbackStatus) {
-                    return (fallback, fallbackStatus, "latest_run_id")
-                }
-            }
+        } else {
+            derivedProblemType = submittedProblemType
         }
-        return nil
+
+        return RoundSnapshot(
+            runId: run.runId,
+            arbiterSummaryText: arbiter,
+            advocateResults: advocates,
+            classifierGroups: groups,
+            mcqDisagreement: run.mcqDisagreement,
+            submittedProblemType: derivedProblemType,
+            lastPromptTypeForBackend: run.promptType ?? lastPromptTypeForBackend
+        )
     }
 
     func ensureConversationId() async throws -> UUID {
@@ -1330,48 +1610,55 @@ private extension ChatPaletteView {
             await MainActor.run {
                 logResolveState(context: "historical-load", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
             }
-            let selectedRun = pickHistoricalRun(from: detail.messages)
-            if let selectedRun {
-                print("ChatPaletteView.loadConversation: selected run_id=\(selectedRun.id) status=\(selectedRun.status ?? "unknown") source=\(selectedRun.source)")
-                do {
-                    let run = try await api.getRun(conversationId: conversationId, runId: selectedRun.id)
-                    await MainActor.run {
-                        applyRunResult(run)
-                        logResolveState(context: "historical-hydrated", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
-                    }
-                    print("ChatPaletteView.loadConversation: historical hydration succeeded")
-                } catch {
-                    await MainActor.run {
-                        arbiterSummaryText = "No saved outputs for this chat."
-                        advocateResults = []
-                        classifierGroups = []
-                        mcqDisagreement = nil
-                        showHistoricalEmptyState = true
-                        allowPlaceholderAdvocates = false
-                        isArbiterThinking = false
-                        isResolveRoundInFlight = false
-                        withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
-                            phase = hasLastUser ? .responded : .composing
-                        }
-                    }
-                    print("ChatPaletteView.loadConversation: historical hydration failed: \(error.localizedDescription)")
-                }
-            } else {
-                print("ChatPaletteView.loadConversation: no completed run_id found")
+
+            // Hydrate every completed run for the latest user message so
+            // back-scroll through prior rounds works after reopening a
+            // chat from history. Falls back to the empty-historical-state
+            // path if there's no user message or no completed runs to show.
+            let userMessage = detail.messages.last(where: { $0.role.lowercased() == "user" })
+            guard let userMessageId = userMessage?.id else {
+                print("ChatPaletteView.loadConversation: no user message in history")
                 await MainActor.run {
-                    arbiterSummaryText = "No saved outputs for this chat."
-                    advocateResults = []
-                    classifierGroups = []
-                    mcqDisagreement = nil
-                    showHistoricalEmptyState = true
-                    allowPlaceholderAdvocates = false
+                    showEmptyHistoricalState(hasLastUser: hasLastUser)
+                    logResolveState(context: "historical-no-user", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                }
+                return
+            }
+
+            do {
+                let runs = try await api.listRuns(conversationId: conversationId, messageId: userMessageId)
+                let completedRuns = runs.filter { isCompletedRunStatus($0.status) }
+                print("ChatPaletteView.loadConversation: fetched \(runs.count) run(s), \(completedRuns.count) completed, messageId=\(userMessageId)")
+
+                if completedRuns.isEmpty {
+                    await MainActor.run {
+                        showEmptyHistoricalState(hasLastUser: hasLastUser)
+                        logResolveState(context: "historical-no-completed-runs", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                    }
+                    return
+                }
+
+                await MainActor.run {
+                    let snapshots = completedRuns.map { makeRoundSnapshot(from: $0) }
+                    roundSnapshots = snapshots
+                    let lastIndex = snapshots.count - 1
+                    viewedRoundIndex = lastIndex
+                    applySnapshot(snapshots[lastIndex])
+                    showHistoricalEmptyState = false
+                    allowPlaceholderAdvocates = true
                     isArbiterThinking = false
                     isResolveRoundInFlight = false
                     withAnimation(settings.animation(.easeInOut(duration: 0.2))) {
-                        phase = hasLastUser ? .responded : .composing
+                        phase = .responded
                     }
-                    logResolveState(context: "historical-no-run", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
+                    logResolveState(context: "historical-hydrated", conversationId: conversationId, persistedResolveCount: persistedResolveCount)
                 }
+                print("ChatPaletteView.loadConversation: historical hydration succeeded with \(completedRuns.count) round(s)")
+            } catch {
+                await MainActor.run {
+                    showEmptyHistoricalState(hasLastUser: hasLastUser)
+                }
+                print("ChatPaletteView.loadConversation: historical hydration failed: \(error.localizedDescription)")
             }
         } catch {
             await MainActor.run {
@@ -1433,6 +1720,10 @@ private extension ChatPaletteView {
         let selectionTint: Color
         let selectionTintOpacity: Double
         let summaryLineLimit: Int
+        /// Pre-formatted "⌘ N" string. Nil means no chip is rendered —
+        /// either because the card's index is past 5 or the user
+        /// disabled keyboard hint chips in Settings.
+        let keyHint: String?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1440,6 +1731,10 @@ private extension ChatPaletteView {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
+
+                    if let keyHint {
+                        ResolveKeycap(keyHint)
+                    }
 
                     Spacer(minLength: 8)
 
@@ -1492,6 +1787,10 @@ private extension ChatPaletteView {
         let selectionTint: Color
         let selectionTintOpacity: Double
         let summaryLineLimit: Int
+        /// Pre-formatted "⌘ N" string. Nil means no chip is rendered —
+        /// either because the card's index is past 5 or the user
+        /// disabled keyboard hint chips in Settings.
+        let keyHint: String?
 
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
@@ -1499,6 +1798,10 @@ private extension ChatPaletteView {
                     Text(title)
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
+
+                    if let keyHint {
+                        ResolveKeycap(keyHint)
+                    }
 
                     Spacer(minLength: 8)
 

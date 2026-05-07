@@ -61,12 +61,15 @@ struct ResolvePrimaryButtonStyle: ButtonStyle {
 
 struct ResolveInlineLinkButton: View {
     let title: String
+    let keyHint: String?
     let action: () -> Void
 
     @State private var isHovering = false
+    @ObservedObject private var settings = UserSettingsStore.shared
 
-    init(_ title: String, action: @escaping () -> Void) {
+    init(_ title: String, keyHint: String? = nil, action: @escaping () -> Void) {
         self.title = title
+        self.keyHint = keyHint
         self.action = action
     }
 
@@ -81,5 +84,48 @@ struct ResolveInlineLinkButton: View {
             isHovering = hovering
         }
         .animation(.easeOut(duration: 0.12), value: isHovering)
+        // Hover-only chip floats above the link via overlay+offset so
+        // it doesn't take up horizontal space in the row.
+        .overlay(alignment: .top) {
+            if let keyHint, settings.showKeyboardHintChips {
+                ResolveKeyHintChip(keyHint)
+                    .fixedSize()
+                    .offset(y: -20)
+                    .opacity(isHovering ? 1 : 0)
+                    .animation(.easeOut(duration: 0.12), value: isHovering)
+                    .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+/// Small monospaced "⌘ B"-style chip that appears next to a button or
+/// control to advertise its keyboard shortcut. Renders nothing when the
+/// user has turned off `showKeyboardHintChips` in Settings.
+struct ResolveKeyHintChip: View {
+    let keys: String
+
+    @ObservedObject private var settings = UserSettingsStore.shared
+
+    init(_ keys: String) {
+        self.keys = keys
+    }
+
+    var body: some View {
+        if settings.showKeyboardHintChips {
+            Text(keys)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+                )
+        }
     }
 }

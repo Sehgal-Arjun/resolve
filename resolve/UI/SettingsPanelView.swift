@@ -14,6 +14,7 @@ struct SettingsPanelView: View {
     }
 
     @State private var route: Route = .main
+    @State private var isBackButtonHovering = false
 
     private var panelWidth: CGFloat { settings.scaled(620) }
     private var panelHeight: CGFloat { settings.scaled(620) }
@@ -95,6 +96,22 @@ struct SettingsPanelView: View {
                 RoundedRectangle(cornerRadius: settings.cornerRadius(8), style: .continuous)
                     .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
             )
+            .keyboardShortcut("b", modifiers: .command)
+            .help("Go home (⌘ B)")
+            .onHover { isBackButtonHovering = $0 }
+            // Hover-only chip floats above the button via overlay +
+            // offset so it doesn't take up horizontal space in the
+            // header row.
+            .overlay(alignment: .top) {
+                if settings.showKeyboardHintChips {
+                    ResolveKeyHintChip("⌘ B")
+                        .fixedSize()
+                        .offset(y: -20)
+                        .opacity(isBackButtonHovering ? 1 : 0)
+                        .animation(.easeOut(duration: 0.12), value: isBackButtonHovering)
+                        .allowsHitTesting(false)
+                }
+            }
 
             Text(headerTitle)
                 .font(.system(size: 16, weight: .semibold))
@@ -233,7 +250,7 @@ struct SettingsPanelView: View {
 
                 SettingsCustomRow(
                     title: "Ambient stance glow",
-                    subtitle: "A soft colored halo around the panel matching the dominant stance."
+                    subtitle: "A soft colored halo around the panel matching the dominant stance. Cycle with ⌘ G."
                 ) {
                     Picker("", selection: $settings.ambientStanceGlow) {
                         ForEach(AmbientGlow.allCases) { level in
