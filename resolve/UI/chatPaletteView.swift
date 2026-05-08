@@ -468,8 +468,7 @@ struct ChatPaletteView: View {
                 switch phase {
                 case .loading:
                     VStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.regular)
+                        OnboardingBreathingDot(diameter: 22)
 
                         Text("Advocates are debating…")
                             .font(.system(size: 13, weight: .semibold))
@@ -481,8 +480,7 @@ struct ChatPaletteView: View {
                     Group {
                         if isArbiterThinking || arbiterSummaryText.isEmpty {
                             VStack(spacing: 10) {
-                                ProgressView()
-                                    .controlSize(.regular)
+                                OnboardingBreathingDot(diameter: 22)
 
                                 if isResolveRoundInFlight {
                                     Text("Advocates are debating…")
@@ -677,8 +675,7 @@ struct ChatPaletteView: View {
                 switch phase {
                 case .loading:
                     VStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.regular)
+                        OnboardingBreathingDot(diameter: 22)
 
                         Text("Advocates are debating…")
                             .font(.system(size: 13, weight: .semibold))
@@ -690,8 +687,7 @@ struct ChatPaletteView: View {
                     Group {
                         if isArbiterThinking || arbiterSummaryText.isEmpty {
                             VStack(spacing: 10) {
-                                ProgressView()
-                                    .controlSize(.regular)
+                                OnboardingBreathingDot(diameter: 22)
 
                                 if isResolveRoundInFlight {
                                     Text("Advocates are debating…")
