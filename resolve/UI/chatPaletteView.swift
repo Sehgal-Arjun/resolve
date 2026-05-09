@@ -30,6 +30,7 @@ struct ChatPaletteView: View {
     @State private var text = ""
     @State private var phase: Phase = .composing
     @State private var isBackButtonHovering = false
+    @State private var isSendButtonHovering = false
     /// Drives the small floating chip at the top of the chat panel for
     /// "Summary copied", "Exported to Downloads", etc. Nil hides the
     /// toast; a non-nil value renders it for ~1.3s and then clears.
@@ -1158,6 +1159,21 @@ struct ChatPaletteView: View {
             )
             .opacity(canSend ? 1.0 : 0.55)
             .disabled(!canSend)
+            .keyboardShortcut(.return, modifiers: .command)
+            .help("Send (⌘ ↵)")
+            .onHover { isSendButtonHovering = $0 }
+            // Hover-only chip floats above via overlay + offset so the
+            // input bar's row stays the same height as before.
+            .overlay(alignment: .top) {
+                if settings.showKeyboardHintChips {
+                    ResolveKeycap("⌘ ↵")
+                        .fixedSize()
+                        .offset(y: -20)
+                        .opacity(isSendButtonHovering ? 1 : 0)
+                        .animation(.easeOut(duration: 0.12), value: isSendButtonHovering)
+                        .allowsHitTesting(false)
+                }
+            }
 
             InlineCloseButton()
         }

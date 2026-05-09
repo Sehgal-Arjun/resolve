@@ -136,6 +136,14 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
 
+        // -- Chat: send
+        KeyboardShortcut(
+            id: "sendChat", label: "Send chat", keys: "⌘ ↵",
+            icon: "arrow.up.circle",
+            surfaces: [.homeList],
+            availability: .always
+        ),
+
         // -- Chat: round navigation
         KeyboardShortcut(
             id: "previousRound", label: "Previous round", keys: "⌘ [",
