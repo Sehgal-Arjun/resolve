@@ -84,7 +84,7 @@ enum KeyboardShortcutCatalog {
         KeyboardShortcut(
             id: "newInstance", label: "New instance", keys: "⌘ ⇧ N",
             icon: "rectangle.on.rectangle",
-            surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
+            surfaces: [.homeList, .cmdKMenu],
             availability: .always
         ),
         KeyboardShortcut(
@@ -107,14 +107,14 @@ enum KeyboardShortcutCatalog {
         ),
 
         // -- Navigation
-        // Onboarding cheat sheet is intentionally curated to ~5 essentials
-        // (matches the original list before the catalog existed) so it
-        // fits the cheat-sheet panel without scrolling. The home list
-        // scrolls and shows everything; ⌘K shows everything fireable.
+        // Onboarding cheat sheet is curated to the shortcuts a user will
+        // hit most in their first few sessions; the home list still
+        // shows everything via its scrollable section, and the cheat
+        // sheet has a "+ more on the home page" footer pointing there.
         KeyboardShortcut(
             id: "openCommandMenu", label: "Open command menu", keys: "⌘ K",
             icon: "command",
-            surfaces: [.homeList],
+            surfaces: [.homeList, .onboardingCheatSheet],
             availability: .always
         ),
         KeyboardShortcut(
@@ -140,7 +140,7 @@ enum KeyboardShortcutCatalog {
         KeyboardShortcut(
             id: "sendChat", label: "Send chat", keys: "⌘ ↵",
             icon: "arrow.up.circle",
-            surfaces: [.homeList],
+            surfaces: [.homeList, .onboardingCheatSheet],
             availability: .always
         ),
 
@@ -162,13 +162,13 @@ enum KeyboardShortcutCatalog {
         KeyboardShortcut(
             id: "previousRound", label: "Previous round", keys: "⌘ [",
             icon: "chevron.left.circle",
-            surfaces: [.homeList, .cmdKMenu],
+            surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
             availability: .always
         ),
         KeyboardShortcut(
             id: "nextRound", label: "Next round", keys: "⌘ ]",
             icon: "chevron.right.circle",
-            surfaces: [.homeList, .cmdKMenu],
+            surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
             availability: .always
         ),
 

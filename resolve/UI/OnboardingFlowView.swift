@@ -126,7 +126,7 @@ struct OnboardingFlowView: View {
             let totalWidth = demoBaseWidth + (selectedDemoAdvocate != nil ? demoDrawerWidth : 0)
             return CGSize(width: settings.scaled(totalWidth), height: settings.scaled(490))
         case .cheatSheet:
-            return CGSize(width: settings.scaled(520), height: settings.scaled(310))
+            return CGSize(width: settings.scaled(520), height: settings.scaled(430))
         }
     }
 
@@ -958,6 +958,14 @@ struct OnboardingFlowView: View {
                     OnboardingShortcutRow(label: entry.label, keys: entry.keys)
                 }
             }
+
+            // Pointer to the home view's full scrollable list — the
+            // cheat sheet is just the most-used subset.
+            Text("+ more on the home page")
+                .font(.system(size: 11.5, weight: .regular))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 2)
+                .opacity(cheatSheetIsTransitioning ? 0 : 1)
 
             HStack {
                 Spacer(minLength: 0)
