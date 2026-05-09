@@ -23,6 +23,13 @@ struct PastChatsView: View {
     /// Pending-delete state. Non-nil → confirmation modal is up.
     @State private var pendingDeletion: Conversation? = nil
 
+    /// Inline-rename state. Non-nil id → that row renders a TextField
+    /// instead of the static title; `editingDraft` holds the in-flight
+    /// edit; Return commits, Esc cancels.
+    @State private var editingConversationId: UUID? = nil
+    @State private var editingDraft: String = ""
+    @FocusState private var editingFocused: Bool
+
     @ObservedObject private var settings = UserSettingsStore.shared
 
     private let api = BackendAPIClient()
@@ -208,7 +215,16 @@ struct PastChatsView: View {
         }
     }
 
+    @ViewBuilder
     private func conversationRow(_ conversation: Conversation) -> some View {
+        if editingConversationId == conversation.id {
+            editingRow(conversation)
+        } else {
+            readOnlyRow(conversation)
+        }
+    }
+
+    private func readOnlyRow(_ conversation: Conversation) -> some View {
         let isHovered = hoveredConversationId == conversation.id
         return ZStack {
             Button {
@@ -226,7 +242,7 @@ struct PastChatsView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(10)
-                .padding(.trailing, 32) // reserve space for the trash button
+                .padding(.trailing, 64) // reserve space for the rename + trash buttons
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -239,8 +255,30 @@ struct PastChatsView: View {
             }
             .buttonStyle(.plain)
 
-            HStack {
+            HStack(spacing: 6) {
                 Spacer()
+
+                Button {
+                    startEditing(conversation)
+                } label: {
+                    Image(systemName: "pencil")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 26, height: 26)
+                }
+                .buttonStyle(.plain)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .opacity(isHovered ? 1 : 0)
+                .animation(.easeOut(duration: 0.12), value: isHovered)
+                .help("Rename")
+
                 Button {
                     pendingDeletion = conversation
                 } label: {
@@ -258,11 +296,11 @@ struct PastChatsView: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .padding(.trailing, 8)
                 .opacity(isHovered ? 1 : 0)
                 .animation(.easeOut(duration: 0.12), value: isHovered)
                 .help("Delete chat (⌘ ⌫)")
             }
+            .padding(.trailing, 8)
         }
         .onHover { hovering in
             if hovering {
@@ -271,6 +309,64 @@ struct PastChatsView: View {
                 hoveredConversationId = nil
             }
         }
+    }
+
+    private func editingRow(_ conversation: Conversation) -> some View {
+        editingRowContent(conversation)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(editingRowBackground)
+            .overlay(editingRowBorder)
+            .overlay(editingRowHiddenShortcuts(for: conversation))
+    }
+
+    private func editingRowContent(_ conversation: Conversation) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("Title", text: $editingDraft)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.primary)
+                .focused($editingFocused)
+                .onSubmit { commitRename(for: conversation) }
+                .onAppear {
+                    // Defer the focus flip a tick so the TextField is
+                    // mounted by the time we ask for focus; without
+                    // the dispatch the first character can sometimes
+                    // get eaten on slower machines.
+                    DispatchQueue.main.async { editingFocused = true }
+                }
+
+            Text("\(conversation.resolveCount) resolves · ⌘ ↵ to save · esc to cancel")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var editingRowBackground: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(Color.white.opacity(0.08))
+    }
+
+    private var editingRowBorder: some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .strokeBorder(settings.resolvedAccentColor.opacity(0.45), lineWidth: 1)
+    }
+
+    /// Hidden 0×0 buttons that capture Esc (cancel) and ⌘↵ (save) so
+    /// the user can dismiss/commit without having to leave the
+    /// keyboard. The TextField's `onSubmit` covers plain Return as
+    /// well; this is the deliberate "save" path.
+    private func editingRowHiddenShortcuts(for conversation: Conversation) -> some View {
+        Group {
+            Button("") { cancelEditing() }
+                .keyboardShortcut(.cancelAction)
+
+            Button("") { commitRename(for: conversation) }
+                .keyboardShortcut(.return, modifiers: .command)
+        }
+        .opacity(0)
+        .frame(width: 0, height: 0)
+        .accessibilityHidden(true)
     }
 
     private func displayTitle(_ conversation: Conversation) -> String {
@@ -401,6 +497,71 @@ struct PastChatsView: View {
     /// UI update synchronously (instead of behind `Task { await ... }`)
     /// avoids a one-frame scheduling gap where the user could see the
     /// row briefly persist after confirming, or click delete twice.
+    // MARK: - Rename
+
+    @MainActor
+    private func startEditing(_ conversation: Conversation) {
+        editingDraft = conversation.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        editingConversationId = conversation.id
+    }
+
+    @MainActor
+    private func cancelEditing() {
+        editingConversationId = nil
+        editingDraft = ""
+    }
+
+    /// Commit the in-flight rename. Trims the draft, no-ops on empty
+    /// or unchanged values, then optimistically updates the local row
+    /// and fires `PATCH /conversations/{id}` in the background. On
+    /// failure the original title is restored and an error surfaces.
+    @MainActor
+    private func commitRename(for conversation: Conversation) {
+        let trimmed = editingDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentTitle = conversation.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        if trimmed.isEmpty || trimmed == currentTitle {
+            cancelEditing()
+            return
+        }
+
+        // Optimistic local update: synthesize a new Conversation with
+        // the new title so the row reflects the rename immediately.
+        if let idx = conversations.firstIndex(where: { $0.id == conversation.id }) {
+            conversations[idx] = Conversation(
+                id: conversation.id,
+                title: trimmed,
+                resolveCount: conversation.resolveCount,
+                createdAt: conversation.createdAt,
+                updatedAt: Date()
+            )
+        }
+        cancelEditing()
+
+        let originalConversation = conversation
+        Task {
+            do {
+                let updated = try await api.updateConversation(id: originalConversation.id, title: trimmed)
+                // Replace the optimistic placeholder with the
+                // server-canonical row (real updated_at, server-side
+                // trimming applied, etc.).
+                await MainActor.run {
+                    if let idx = conversations.firstIndex(where: { $0.id == updated.id }) {
+                        conversations[idx] = updated
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    if let idx = conversations.firstIndex(where: { $0.id == originalConversation.id }) {
+                        conversations[idx] = originalConversation
+                    }
+                    lastError = "Failed to rename: \(error.localizedDescription)"
+                }
+                print("PastChatsView.commitRename failed — \(error.localizedDescription)")
+            }
+        }
+    }
+
     @MainActor
     private func confirmDelete(_ conversation: Conversation) {
         let originalIndex = conversations.firstIndex(where: { $0.id == conversation.id })
