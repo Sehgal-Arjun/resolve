@@ -66,6 +66,33 @@ final class BackendAPIClient {
         try await request(path: "/conversations/\(id)", method: "GET", body: Optional<Int>.none)
     }
 
+    /// Permanently deletes a conversation and all of its messages/runs.
+    /// Backend: `DELETE /conversations/{id}` — expected to return 204 or
+    /// 200 with no body.
+    func deleteConversation(id: UUID) async throws {
+        try await deleteConversation(id: id.uuidString)
+    }
+
+    func deleteConversation(id: String) async throws {
+        let path = "/conversations/\(id)"
+        let (_, _) = try await requestRaw(path: path, method: "DELETE", body: Optional<Int>.none)
+    }
+
+    /// Updates the conversation's title. Backend: `PATCH
+    /// /conversations/{id}` with body `{"title": "..."}`.
+    func updateConversation(id: UUID, title: String) async throws -> Conversation {
+        try await updateConversation(id: id.uuidString, title: title)
+    }
+
+    func updateConversation(id: String, title: String) async throws -> Conversation {
+        struct Body: Encodable { let title: String }
+        return try await request(
+            path: "/conversations/\(id)",
+            method: "PATCH",
+            body: Body(title: title)
+        )
+    }
+
     func postMessage(
         conversationId: UUID,
         content: String,

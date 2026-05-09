@@ -1213,7 +1213,11 @@ struct ChatPaletteView: View {
             }
 
             do {
-                let conversationId = try await ensureConversationId()
+                // Pass the user's prompt so a brand-new conversation
+                // gets a readable title at creation time. If the
+                // conversation already exists, the title is left
+                // alone — explicit renames go through a separate path.
+                let conversationId = try await ensureConversationId(autoTitleFrom: trimmed)
                 let response = try await api.postMessage(
                     conversationId: conversationId,
                     content: trimmed,
@@ -1598,14 +1602,30 @@ private extension ChatPaletteView {
         )
     }
 
-    func ensureConversationId() async throws -> UUID {
+    func ensureConversationId(autoTitleFrom prompt: String? = nil) async throws -> UUID {
         let existing = await MainActor.run { currentConversationId }
         if let existing { return existing }
-        let conversation = try await api.createConversation(title: nil)
+        let title = prompt.flatMap { Self.autoTitle(fromPrompt: $0) }
+        let conversation = try await api.createConversation(title: title)
         await MainActor.run {
             currentConversationId = conversation.id
         }
         return conversation.id
+    }
+
+    /// Build a short, readable title for a brand-new conversation from
+    /// the user's opening prompt. Trims whitespace, collapses internal
+    /// newlines into a space, and caps to ~60 characters with an
+    /// ellipsis. Returns nil if the prompt is empty after trimming.
+    static func autoTitle(fromPrompt prompt: String) -> String? {
+        let collapsed = prompt
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !collapsed.isEmpty else { return nil }
+        let limit = 60
+        guard collapsed.count > limit else { return collapsed }
+        let idx = collapsed.index(collapsed.startIndex, offsetBy: limit)
+        return String(collapsed[..<idx]).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     func loadConversation(conversationId: UUID) async {

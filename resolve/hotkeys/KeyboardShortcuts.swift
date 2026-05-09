@@ -144,6 +144,20 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
 
+        // -- Past chats
+        KeyboardShortcut(
+            id: "searchPastChats", label: "Search past chats", keys: "⌘ F",
+            icon: "magnifyingglass",
+            surfaces: [.homeList],
+            availability: .always
+        ),
+        KeyboardShortcut(
+            id: "deletePastChat", label: "Delete past chat", keys: "⌘ ⌫",
+            icon: "trash",
+            surfaces: [.homeList],
+            availability: .always
+        ),
+
         // -- Chat: round navigation
         KeyboardShortcut(
             id: "previousRound", label: "Previous round", keys: "⌘ [",
