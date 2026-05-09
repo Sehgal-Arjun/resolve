@@ -108,7 +108,7 @@ struct OnboardingFlowView: View {
         case .unfurled, .hotkey, .hotkeyHidden:
             return CGSize(width: settings.scaled(480), height: settings.scaled(215))
         case .hotkeyResolved:
-            return CGSize(width: settings.scaled(480), height: settings.scaled(225))
+            return CGSize(width: settings.scaled(480), height: settings.scaled(240))
         case .signIn:
             return CGSize(width: settings.scaled(480), height: settings.scaled(250))
         case .signingIn:
@@ -336,6 +336,22 @@ struct OnboardingFlowView: View {
                         .lineSpacing(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                // Menu-bar discoverability. If the user ever forgets
+                // the chord (or doesn't trust it), the sparkles icon
+                // up top is always there.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    Text("iIf you ever lose Resolve, look for the ✦ in your menu bar! It's always up there.")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineSpacing(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.top, 2)
             }
 
             HStack {
