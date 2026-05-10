@@ -3,12 +3,31 @@ import SwiftUI
 struct PastChatsView: View {
     let onBack: () -> Void
     let onOpenConversation: (UUID) -> Void
+    /// Called when the empty-state picker resolves a prompt — either
+    /// from a pre-baked example or the custom text field. Forwards to
+    /// the chat panel which auto-sends.
+    let onStartChatWithPrompt: (String) -> Void
 
     private var cardWidth: CGFloat { settings.scaled(520) }
     private let cardCornerRadius: CGFloat = 16
 
+    /// Suggested prompts surfaced in the empty state. Distinct from the
+    /// onboarding demo questions so a returning empty user doesn't see
+    /// the same prompts they already saw during the tour. Tone is
+    /// intentionally fun and debate-worthy rather than work-focused.
+    private static let examplePrompts: [String] = [
+        "Are aliens real, and have they ever visited Earth?",
+        "What's the strongest argument for or against free will?",
+        "If you could only eat one cuisine for the rest of your life, what should it be?",
+        "Is the book usually better than the movie?",
+        "Is it better to live in a big city or a small town?"
+    ]
+
     @State private var conversations: [Conversation] = []
-    @State private var isLoading = false
+    /// Starts true so the first render shows "Loading…" instead of
+    /// flashing the empty state for a frame before `loadConversations`
+    /// has had a chance to populate the list.
+    @State private var isLoading = true
     @State private var lastError: String?
     @State private var isBackButtonHovering = false
 
@@ -29,6 +48,13 @@ struct PastChatsView: View {
     @State private var editingConversationId: UUID? = nil
     @State private var editingDraft: String = ""
     @FocusState private var editingFocused: Bool
+
+    /// Empty-state picker reveal. Default false (collapsed: just the
+    /// hero + CTA button); becomes true after the user clicks "Try
+    /// with an example" to surface the suggestion cards + custom input.
+    @State private var showExamplePicker = false
+    @State private var customPrompt: String = ""
+    @FocusState private var customPromptFocused: Bool
 
     @ObservedObject private var settings = UserSettingsStore.shared
 
@@ -196,9 +222,7 @@ struct PastChatsView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         } else if conversations.isEmpty {
-            Text("No past chats yet")
-                .font(.system(size: 14, weight: .regular))
-                .foregroundStyle(.tertiary)
+            emptyState
         } else if filteredConversations.isEmpty {
             Text("No matches for \u{201C}\(searchQuery)\u{201D}")
                 .font(.system(size: 13, weight: .regular))
@@ -210,9 +234,54 @@ struct PastChatsView: View {
                     ForEach(filteredConversations) { conversation in
                         conversationRow(conversation)
                     }
+
+                    // Same picker the empty state uses, surfaced at
+                    // the end of the list as an "out of questions"
+                    // nudge. Tapping the button expands inline; the
+                    // expanded view's tap targets route through
+                    // `onStartChatWithPrompt` exactly like the empty
+                    // state.
+                    Group {
+                        if showExamplePicker {
+                            emptyStateExamples
+                        } else {
+                            outOfQuestionsButton
+                        }
+                    }
+                    .padding(.top, 14)
                 }
             }
         }
+    }
+
+    private var outOfQuestionsButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                showExamplePicker = true
+            }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text("Out of questions? Try one of these.")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+        )
     }
 
     @ViewBuilder
@@ -372,6 +441,189 @@ struct PastChatsView: View {
     private func displayTitle(_ conversation: Conversation) -> String {
         let trimmed = conversation.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return trimmed.isEmpty ? "Untitled" : trimmed
+    }
+
+    // MARK: - Empty state
+
+    private var emptyState: some View {
+        ScrollView {
+            VStack(spacing: 16) {
+                emptyStateHero
+
+                if showExamplePicker {
+                    emptyStateExamples
+                } else {
+                    emptyStateRevealButton
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 48)
+        }
+    }
+
+    private var emptyStateHero: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(settings.resolvedAccentColor.opacity(0.18))
+                    .frame(width: 64, height: 64)
+                Image(systemName: "bubble.left.and.bubble.right.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(settings.resolvedAccentColor)
+            }
+
+            Text("No chats yet")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.primary)
+
+            Text("Resolve compares frontier AI models on the questions you actually care about.")
+                .font(.system(size: 13, weight: .regular))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 12)
+        }
+    }
+
+    private var emptyStateRevealButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.2)) {
+                showExamplePicker = true
+            }
+        } label: {
+            Text("Try with an example")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white.opacity(0.12))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
+        )
+    }
+
+    private var emptyStateExamples: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pick one to try, or write your own.")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(spacing: 6) {
+                ForEach(Self.examplePrompts, id: \.self) { prompt in
+                    examplePromptRow(prompt)
+                }
+            }
+
+            customPromptField
+                .padding(.top, 4)
+        }
+    }
+
+    private func examplePromptRow(_ prompt: String) -> some View {
+        Button {
+            onStartChatWithPrompt(prompt)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "arrow.up.right.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.top, 1)
+
+                Text(prompt)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .multilineTextAlignment(.leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var customPromptField: some View {
+        customPromptFieldRow
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(customPromptFieldBackground)
+            .overlay(customPromptFieldBorder)
+    }
+
+    private var customPromptFieldRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.tertiary)
+
+            TextField("Or write your own…", text: $customPrompt)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13, weight: .regular))
+                .focused($customPromptFocused)
+                .onSubmit { submitCustomPrompt() }
+
+            customPromptSubmitButton
+        }
+    }
+
+    private var customPromptSubmitButton: some View {
+        Button {
+            submitCustomPrompt()
+        } label: {
+            Image(systemName: "arrow.up")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(canSubmitCustomPrompt ? Color.primary : Color.secondary)
+                .frame(width: 24, height: 24)
+        }
+        .buttonStyle(.plain)
+        .background(customPromptSubmitButtonBackground)
+        .disabled(!canSubmitCustomPrompt)
+    }
+
+    private var customPromptSubmitButtonBackground: some View {
+        // Mirror the chat input bar's send-button opacity so the empty
+        // state's submit arrow doesn't read as more prominent than the
+        // real one in the chat panel.
+        let accentOpacity: Double = settings.accentColorChoice == .mono ? 0.14 : 0.22
+        let fill: Color = canSubmitCustomPrompt
+            ? settings.resolvedAccentColor.opacity(accentOpacity)
+            : Color.white.opacity(0.06)
+        return RoundedRectangle(cornerRadius: 7, style: .continuous).fill(fill)
+    }
+
+    private var customPromptFieldBackground: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color.white.opacity(0.06))
+    }
+
+    private var customPromptFieldBorder: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .strokeBorder(Color.white.opacity(customPromptFocused ? 0.20 : 0.10), lineWidth: 1)
+    }
+
+    private var canSubmitCustomPrompt: Bool {
+        !customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func submitCustomPrompt() {
+        let trimmed = customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        onStartChatWithPrompt(trimmed)
     }
 
     // MARK: - Hidden shortcuts

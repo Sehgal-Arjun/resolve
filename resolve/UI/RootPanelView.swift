@@ -14,6 +14,11 @@ struct RootPanelView: View {
 
     @State private var signedInRoute: SignedInRoute = .home
     @State private var selectedConversationId: UUID?
+    /// One-shot prompt forwarded to a freshly-mounted ChatPaletteView so
+    /// the chat opens with the user's question already in flight. Used
+    /// by Past Chats' empty-state "try an example" picker. Cleared on
+    /// chat back-navigation so a subsequent visit to .main starts blank.
+    @State private var pendingPromptForNewChat: String? = nil
     @State private var diveInToken: NSObjectProtocol?
     @State private var openSettingsToken: NSObjectProtocol?
     /// Runtime "are we currently in the onboarding flow" gate. Independent
@@ -334,6 +339,12 @@ struct RootPanelView: View {
                 onBack: { signedInRoute = .home },
                 onOpenConversation: { conversationId in
                     selectedConversationId = conversationId
+                    pendingPromptForNewChat = nil
+                    signedInRoute = .main
+                },
+                onStartChatWithPrompt: { prompt in
+                    selectedConversationId = nil
+                    pendingPromptForNewChat = prompt
                     signedInRoute = .main
                 }
             )
@@ -344,8 +355,10 @@ struct RootPanelView: View {
         case .main:
             MainAppPanelView(
                 initialConversationId: selectedConversationId,
+                initialPrompt: pendingPromptForNewChat,
                 onBack: {
                     selectedConversationId = nil
+                    pendingPromptForNewChat = nil
                     signedInRoute = .home
                 }
             )

@@ -14,6 +14,9 @@ fileprivate struct RoundSnapshot {
 
 struct ChatPaletteView: View {
     let initialConversationId: UUID?
+    /// One-shot prompt to pre-fill and auto-send when the chat first
+    /// mounts. Used by Past Chats' empty-state "try an example" flow.
+    let initialPrompt: String?
     let onBack: (() -> Void)?
 
     enum Phase {
@@ -22,8 +25,13 @@ struct ChatPaletteView: View {
         case responded
     }
 
-    init(initialConversationId: UUID? = nil, onBack: (() -> Void)? = nil) {
+    init(
+        initialConversationId: UUID? = nil,
+        initialPrompt: String? = nil,
+        onBack: (() -> Void)? = nil
+    ) {
         self.initialConversationId = initialConversationId
+        self.initialPrompt = initialPrompt
         self.onBack = onBack
     }
 
@@ -355,6 +363,14 @@ struct ChatPaletteView: View {
             if let initialConversationId {
                 currentConversationId = initialConversationId
                 Task { await loadConversation(conversationId: initialConversationId) }
+            } else if let initialPrompt, !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                // Auto-send path: a parent view (e.g. Past Chats'
+                // empty-state example picker) wants this chat to start
+                // with the user's question already in flight. Set the
+                // input and dispatch send on the next runloop tick so
+                // SwiftUI has time to mount the input field.
+                text = initialPrompt
+                DispatchQueue.main.async { send() }
             }
         }
         .onChange(of: phase) { newPhase in
@@ -1213,13 +1229,9 @@ struct ChatPaletteView: View {
             }
 
             do {
-                // Pass the user's prompt so a brand-new conversation
-                // gets a readable title at creation time. If the
-                // conversation already exists, the title is left
-                // alone — explicit renames go through a separate path.
-                let conversationId = try await ensureConversationId(autoTitleFrom: trimmed)
+                let ensured = try await ensureConversationId()
                 let response = try await api.postMessage(
-                    conversationId: conversationId,
+                    conversationId: ensured.id,
                     content: trimmed,
                     promptType: lastPromptTypeForBackend,
                     summaryFormat: nil,
@@ -1228,10 +1240,17 @@ struct ChatPaletteView: View {
                 )
 
                 await MainActor.run {
-                    currentConversationId = conversationId
+                    currentConversationId = ensured.id
                     lastUserMessageId = response.message.id
                     applyRunResult(response.run)
                     focused = true
+                }
+
+                // For brand-new conversations, schedule a delayed
+                // client-side title fallback so the row never stays
+                // "Untitled" forever if the backend namer fails.
+                if ensured.wasCreated {
+                    scheduleTitleFallback(conversationId: ensured.id, prompt: trimmed)
                 }
             } catch {
                 await MainActor.run {
@@ -1602,21 +1621,28 @@ private extension ChatPaletteView {
         )
     }
 
-    func ensureConversationId(autoTitleFrom prompt: String? = nil) async throws -> UUID {
+    /// Returns the active conversation id, creating one on the backend
+    /// if needed. The `wasCreated` flag tells the caller whether this
+    /// invocation actually created a new row — used to gate the
+    /// delayed client-side title fallback so we don't fire it on every
+    /// resolve round.
+    func ensureConversationId() async throws -> (id: UUID, wasCreated: Bool) {
         let existing = await MainActor.run { currentConversationId }
-        if let existing { return existing }
-        let title = prompt.flatMap { Self.autoTitle(fromPrompt: $0) }
-        let conversation = try await api.createConversation(title: title)
+        if let existing { return (existing, false) }
+        // Pass `title: nil` so the backend's AI namer
+        // (`dispatchTitleGeneration`) can produce a nice summarized
+        // title — it only runs when the title is null at creation.
+        let conversation = try await api.createConversation(title: nil)
         await MainActor.run {
             currentConversationId = conversation.id
         }
-        return conversation.id
+        return (conversation.id, true)
     }
 
-    /// Build a short, readable title for a brand-new conversation from
-    /// the user's opening prompt. Trims whitespace, collapses internal
-    /// newlines into a space, and caps to ~60 characters with an
-    /// ellipsis. Returns nil if the prompt is empty after trimming.
+    /// Build a short title from the user's opening prompt as a
+    /// last-resort fallback when the backend's AI namer has failed or
+    /// stalled. Trims whitespace, collapses newlines, caps at ~60
+    /// chars with an ellipsis. Returns nil for empty prompts.
     static func autoTitle(fromPrompt prompt: String) -> String? {
         let collapsed = prompt
             .replacingOccurrences(of: "\n", with: " ")
@@ -1626,6 +1652,28 @@ private extension ChatPaletteView {
         guard collapsed.count > limit else { return collapsed }
         let idx = collapsed.index(collapsed.startIndex, offsetBy: limit)
         return String(collapsed[..<idx]).trimmingCharacters(in: .whitespaces) + "…"
+    }
+
+    /// After a brand-new conversation is created, give the backend's AI
+    /// namer ~15 seconds to land a nice title. If the title is still
+    /// null/empty by then, PATCH it with a client-side fallback derived
+    /// from the user's first prompt. The check guards on the server's
+    /// current title — so an explicit user rename in that window never
+    /// gets overwritten.
+    private func scheduleTitleFallback(conversationId: UUID, prompt: String) {
+        guard let fallback = Self.autoTitle(fromPrompt: prompt) else { return }
+        Task {
+            try? await Task.sleep(nanoseconds: 15_000_000_000)
+            do {
+                let detail = try await api.getConversation(id: conversationId)
+                let current = detail.conversation.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard current.isEmpty else { return }
+                _ = try await api.updateConversation(id: conversationId, title: fallback)
+                print("ChatPaletteView: title fallback applied — \(fallback)")
+            } catch {
+                print("ChatPaletteView: title fallback check failed — \(error.localizedDescription)")
+            }
+        }
     }
 
     func loadConversation(conversationId: UUID) async {
