@@ -96,7 +96,7 @@ enum KeyboardShortcutCatalog {
         KeyboardShortcut(
             id: "settings", label: "Settings", keys: "⌘ ,",
             icon: "gearshape",
-            surfaces: [.homeList, .onboardingCheatSheet, .cmdKMenu],
+            surfaces: [.homeList, .cmdKMenu],
             availability: .primaryOnly
         ),
         KeyboardShortcut(
@@ -111,6 +111,12 @@ enum KeyboardShortcutCatalog {
         // hit most in their first few sessions; the home list still
         // shows everything via its scrollable section, and the cheat
         // sheet has a "+ more on the home page" footer pointing there.
+        KeyboardShortcut(
+            id: "askResolve", label: "Ask Resolve with selected text", keys: "⌘ ⇧ A",
+            icon: "text.viewfinder",
+            surfaces: [.homeList, .onboardingCheatSheet],
+            availability: .always
+        ),
         KeyboardShortcut(
             id: "openCommandMenu", label: "Open command menu", keys: "⌘ K",
             icon: "command",

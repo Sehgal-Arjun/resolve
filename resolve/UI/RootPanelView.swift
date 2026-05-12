@@ -21,6 +21,7 @@ struct RootPanelView: View {
     @State private var pendingPromptForNewChat: String? = nil
     @State private var diveInToken: NSObjectProtocol?
     @State private var openSettingsToken: NSObjectProtocol?
+    @State private var askResolveServiceToken: NSObjectProtocol?
     /// Runtime "are we currently in the onboarding flow" gate. Independent
     /// of the persistent `hasCompletedOnboarding` flag — that one tracks
     /// "has the user ever finished the tour" and never resets after first
@@ -255,42 +256,76 @@ struct RootPanelView: View {
                 inOnboarding = true
             }
         }
-        .onAppear {
-            Task { await authManager.refreshAuthState() }
-            diveInToken = NotificationCenter.default.addObserver(
-                forName: diveInNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                guard CommandPanelController.shared === panelController else { return }
-                if case .signedIn = authManager.state {
-                    signedInRoute = .main
-                }
-            }
-            openSettingsToken = NotificationCenter.default.addObserver(
-                forName: openSettingsNotification,
-                object: nil,
-                queue: .main
-            ) { _ in
-                // Settings only lives on the original instance. The command
-                // already filters this, but guard here too in case the
-                // notification is posted from anywhere else.
-                guard panelController?.isPrimary == true else { return }
-                if case .signedIn = authManager.state {
-                    signedInRoute = .settings
-                }
-            }
-        }
+        .onAppear { installObserversOnAppear() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await authManager.refreshAuthState() }
         }
-        .onDisappear {
-            if let token = diveInToken {
-                NotificationCenter.default.removeObserver(token)
+        .onDisappear { removeObserversOnDisappear() }
+    }
+
+    /// Body had grown too long for SwiftUI's expression type checker
+    /// once the third notification observer landed. Pulling the
+    /// `onAppear` block into a method buys the compiler back enough
+    /// budget. Behavior is unchanged from inlining.
+    private func installObserversOnAppear() {
+        Task { await authManager.refreshAuthState() }
+        diveInToken = NotificationCenter.default.addObserver(
+            forName: diveInNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            guard CommandPanelController.shared === panelController else { return }
+            if case .signedIn = authManager.state {
+                signedInRoute = .main
             }
-            if let token = openSettingsToken {
-                NotificationCenter.default.removeObserver(token)
+        }
+        openSettingsToken = NotificationCenter.default.addObserver(
+            forName: openSettingsNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // Settings only lives on the original instance. The
+            // command already filters this, but guard here too in
+            // case the notification is posted from anywhere else.
+            guard panelController?.isPrimary == true else { return }
+            if case .signedIn = authManager.state {
+                signedInRoute = .settings
             }
+        }
+        askResolveServiceToken = NotificationCenter.default.addObserver(
+            forName: askResolveServiceNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            // Only the primary panel handles the macOS Service —
+            // otherwise every open instance would race to spawn its
+            // own auto-sending chat for the same selection.
+            guard panelController?.isPrimary == true else { return }
+            guard let text = note.userInfo?["text"] as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            consumeAskResolveText(text)
+        }
+
+        // Drain any service text queued before this view had a chance
+        // to register its observer — catches the first-time-after-hidden
+        // case where the panel mounts in response to `showAll()` AFTER
+        // the notification has already been posted.
+        if panelController?.isPrimary == true,
+           let queued = ResolveServicesProvider.pendingServiceText,
+           !queued.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            consumeAskResolveText(queued)
+        }
+    }
+
+    private func removeObserversOnDisappear() {
+        if let token = diveInToken {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = openSettingsToken {
+            NotificationCenter.default.removeObserver(token)
+        }
+        if let token = askResolveServiceToken {
+            NotificationCenter.default.removeObserver(token)
         }
     }
 
@@ -389,6 +424,25 @@ struct RootPanelView: View {
         .opacity(0)
         .frame(width: 0, height: 0)
         .accessibilityHidden(true)
+    }
+
+    /// Single entry point for the macOS Service "Ask Resolve" — used by
+    /// both the live notification observer and the on-appear queue
+    /// drain. Routes the user into a freshly-mounted chat that
+    /// auto-sends the supplied text. Clears the pending-text queue so
+    /// duplicate fires don't double-dispatch.
+    private func consumeAskResolveText(_ text: String) {
+        guard case .signedIn = authManager.state else {
+            // User isn't signed in yet — drop the queued text rather
+            // than stash it indefinitely. Re-invoking the service
+            // after sign-in is the user's recourse.
+            ResolveServicesProvider.pendingServiceText = nil
+            return
+        }
+        ResolveServicesProvider.pendingServiceText = nil
+        selectedConversationId = nil
+        pendingPromptForNewChat = text
+        signedInRoute = .main
     }
 
     /// Sign-out confirmation card. Tapping the dim backdrop or pressing

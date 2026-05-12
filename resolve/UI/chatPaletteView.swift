@@ -365,10 +365,25 @@ struct ChatPaletteView: View {
                 Task { await loadConversation(conversationId: initialConversationId) }
             } else if let initialPrompt, !initialPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 // Auto-send path: a parent view (e.g. Past Chats'
-                // empty-state example picker) wants this chat to start
-                // with the user's question already in flight. Set the
-                // input and dispatch send on the next runloop tick so
-                // SwiftUI has time to mount the input field.
+                // empty-state example picker, or the Ask Resolve
+                // service) wants this chat to start with the user's
+                // question already in flight.
+                //
+                // Pre-size the panel to the expanded chat dimensions
+                // using `.center` anchor BEFORE send() fires so the
+                // panel grows symmetrically around its current
+                // position. Without this, the phase-change resize
+                // would use `.topCenter` (pin top, grow downward) and
+                // visibly shift the panel's center down by ~160pt —
+                // noticeable for users who've manually centered the
+                // panel on screen. The subsequent phase-change
+                // resize is a no-op (same dimensions, delta < 0.5).
+                CommandPanelController.shared.setSize(
+                    width: currentPanelWidth,
+                    height: expandedHeight,
+                    animated: false,
+                    anchor: .center
+                )
                 text = initialPrompt
                 DispatchQueue.main.async { send() }
             }

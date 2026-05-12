@@ -53,6 +53,9 @@ final class AppController: ObservableObject {
         if KeyboardShortcuts.getShortcut(for: .togglePalette) == nil {
             KeyboardShortcuts.setShortcut(.init(.semicolon, modifiers: [.command]), for: .togglePalette)
         }
+        if KeyboardShortcuts.getShortcut(for: .askResolve) == nil {
+            KeyboardShortcuts.setShortcut(.init(.a, modifiers: [.command, .shift]), for: .askResolve)
+        }
         KeyboardShortcuts.setShortcut(nil, for: .diveIn)
         KeyboardShortcuts.setShortcut(nil, for: .resolveRound)
         KeyboardShortcuts.setShortcut(nil, for: .newInstance)
@@ -69,6 +72,16 @@ final class AppController: ObservableObject {
         KeyboardShortcuts.onKeyUp(for: .togglePalette) {
             CommandPanelManager.shared.smartToggle()
             NotificationCenter.default.post(name: togglePaletteUsedNotification, object: nil)
+        }
+
+        // ⌘⇧A (default) — Ask Resolve. Synthesizes ⌘C in the
+        // frontmost app to capture the current selection, restores
+        // the previous clipboard, and dispatches the captured text
+        // into a fresh auto-sending Resolve chat. Same end-result as
+        // the right-click → Services → Ask Resolve entry, but
+        // skipping the menu dive.
+        KeyboardShortcuts.onKeyUp(for: .askResolve) {
+            ResolveServicesProvider.grabSelectionAndDispatch()
         }
 
         // All other shortcuts are routed through `installLocalKeyMonitor`

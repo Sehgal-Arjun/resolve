@@ -1,6 +1,13 @@
 import Cocoa
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// Strong reference to the macOS Service handler. AppKit only
+    /// keeps a weak reference via `NSApp.servicesProvider`, so we have
+    /// to retain it here or the "Ask Resolve" service stops working
+    /// shortly after launch.
+    private let servicesProvider = ResolveServicesProvider()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Touch the notifications singleton early so its
         // `UNUserNotificationCenter.delegate` registration runs
@@ -8,6 +15,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // first notification's `willPresent` falls back to default
         // suppression behavior.
         _ = ResolveNotifications.shared
+
+        // Register the macOS Service handler so users can right-click
+        // selected text in any app and pick "Ask Resolve". The system
+        // routes the selection through `ResolveServicesProvider`
+        // which posts an `askResolveServiceNotification` for
+        // RootPanelView to consume. `NSUpdateDynamicServices()` tells
+        // the system to refresh its cached services list — without
+        // it, the menu item won't appear until the next reboot.
+        NSApp.servicesProvider = servicesProvider
+        NSUpdateDynamicServices()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

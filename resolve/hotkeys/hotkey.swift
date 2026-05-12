@@ -9,6 +9,12 @@ extension KeyboardShortcuts.Name {
     static let newInstance = Self("newInstance")
     static let openSettings = Self("openSettings")
     static let focusOriginal = Self("focusOriginal")
+    /// Global "Ask Resolve" — synthesizes ⌘C in the frontmost app to
+    /// grab the selection, then dispatches the captured text into a
+    /// fresh auto-sending Resolve chat. Same end behavior as the
+    /// `Ask Resolve` Service entry under right-click → Services, just
+    /// without making the user dive into the submenu.
+    static let askResolve = Self("askResolve")
 }
 
 /// Display labels and default chords for every customizable shortcut. Drives
@@ -28,7 +34,10 @@ struct ShortcutSpec: Identifiable {
 let resolveCustomizableShortcuts: [ShortcutSpec] = [
     ShortcutSpec(id: "togglePalette", title: "Toggle palette",
                  subtitle: "Show/hide every Resolve panel from anywhere. The only Resolve shortcut that works system-wide.",
-                 name: .togglePalette)
+                 name: .togglePalette),
+    ShortcutSpec(id: "askResolve", title: "Ask Resolve",
+                 subtitle: "Take whatever's selected in the frontmost app and drop it into a new auto-sending Resolve chat.",
+                 name: .askResolve)
 ]
 
 let diveInNotification = NSNotification.Name("resolve.diveIn")
@@ -49,3 +58,9 @@ let nextRoundNotification = NSNotification.Name("resolve.nextRound")
 let closeAdvocateDrawerNotification = NSNotification.Name("resolve.closeAdvocateDrawer")
 let copyArbiterSummaryNotification = NSNotification.Name("resolve.copyArbiterSummary")
 let exportChatMarkdownNotification = NSNotification.Name("resolve.exportChatMarkdown")
+
+/// Posted by the macOS Service handler when the user invokes the
+/// "Ask Resolve" entry from any app's right-click menu. The selected
+/// text is delivered via `userInfo["text"]`. RootPanelView observes
+/// this and routes the user into a new auto-sending chat.
+let askResolveServiceNotification = NSNotification.Name("resolve.askResolveService")

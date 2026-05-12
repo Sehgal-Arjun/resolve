@@ -23,8 +23,14 @@ struct MainAppPanelView: View {
             onBack: onBack
         )
         .onAppear {
-            // Ensure the panel matches the chat palette immediately; ChatPaletteView will resize
-            // further as its internal phase changes.
+            // Skip this initial composing-size resize when we're
+            // about to auto-send: the chat jumps straight to the
+            // expanded responded layout, and `ChatPaletteView`'s
+            // onAppear handles sizing itself in that case. Without
+            // this skip the panel would briefly snap to 140pt before
+            // growing back to 460pt — a visible flicker that drags
+            // the panel's center off the user's chosen position.
+            guard initialPrompt == nil else { return }
             CommandPanelController.shared.setSize(width: baseWidth, height: baseHeight, animated: !settings.reducedMotion)
         }
     }
