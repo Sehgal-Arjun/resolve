@@ -290,10 +290,27 @@ struct ChatPaletteView: View {
                     Image(systemName: "sparkles")
                         .foregroundStyle(.secondary)
 
-                    Text(lastSentText)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.primary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    // Short questions render as plain Text (natural
+                    // height). Long ones flip to a scrollable region
+                    // capped at ~80pt so the question stays visible
+                    // without ballooning the panel. `ViewThatFits`
+                    // tries the plain-Text first, falls back to the
+                    // ScrollView when it can't fit in the proposed
+                    // height.
+                    ViewThatFits(in: .vertical) {
+                        Text(lastSentText)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        ScrollView(.vertical, showsIndicators: false) {
+                            Text(lastSentText)
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxHeight: 80)
                 }
                 .padding(12)
                 .background(
@@ -1080,7 +1097,11 @@ struct ChatPaletteView: View {
     }
 
     private var inputBar: some View {
-        HStack(spacing: 12) {
+        // `.bottom` alignment keeps the back/new/menu/send buttons
+        // anchored at the bottom of the row as the TextField grows
+        // up — otherwise multi-line input would float the buttons
+        // around mid-air.
+        HStack(alignment: .bottom, spacing: 12) {
             if let onBack {
                 Button(action: onBack) {
                     Image(systemName: "chevron.left")
@@ -1121,15 +1142,35 @@ struct ChatPaletteView: View {
                     .fill(Color.white.opacity(0.08))
             )
 
-            HStack(spacing: 10) {
+            // Sparkles + multi-line TextField. `.top` alignment pins
+            // the sparkles to the first line so it doesn't float in
+            // the middle of a 4-line input box.
+            HStack(alignment: .top, spacing: 10) {
                 Image(systemName: "sparkles")
                     .foregroundStyle(.secondary)
+                    // Match the TextField's intrinsic line height so
+                    // the icon sits visually centered on the first
+                    // line of text, not above it.
+                    .padding(.top, 2)
 
-                TextField("Ask Resolve…", text: $text)
+                TextField("Ask Resolve…", text: $text, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 18, weight: .medium))
                     .focused($focused)
                     .disabled(phase == .loading)
+                    .lineLimit(1...4)
+                    .onSubmit { send() }
+                    // Intercept ⇧↵ before SwiftUI's default handler
+                    // treats Return as a submit. Plain Return falls
+                    // through to onSubmit; ⌥↵ falls through to
+                    // SwiftUI's native cursor-position newline.
+                    .onKeyPress(.return, phases: .down) { keyPress in
+                        if keyPress.modifiers.contains(.shift) {
+                            text += "\n"
+                            return .handled
+                        }
+                        return .ignored
+                    }
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 12)
