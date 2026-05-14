@@ -58,6 +58,13 @@ struct ChatPaletteView: View {
     @State private var submittedProblemType: ProblemType = .generalQuestion
     @State private var advocateResults: [AdvocateResult] = []
     @State private var selectedAdvocateId: String?
+    /// Diff feature state. `diffSelectionMode` flips true after the
+    /// user hits "Diff" in the open drawer; the next advocate-card
+    /// tap then becomes the secondary advocate, sets
+    /// `diffSecondaryAdvocateId`, and the side-by-side diff view
+    /// takes over the panel until the user backs out.
+    @State private var diffSelectionMode: Bool = false
+    @State private var diffSecondaryAdvocateId: String? = nil
     @State private var currentConversationId: UUID?
     @State private var lastUserMessageId: UUID?
     @State private var lastPromptTypeForBackend: String = "general"
@@ -94,7 +101,12 @@ struct ChatPaletteView: View {
     }
 
     private var isDrawerOpen: Bool {
-        selectedAdvocateId != nil
+        // The diff view replaces the entire chat panel content
+        // (drawer included), so even though `selectedAdvocateId` is
+        // still set in diff mode, the *drawer affordance* isn't on
+        // screen — we don't want the panel widened by `drawerWidth`
+        // in that case.
+        selectedAdvocateId != nil && !diffActive
     }
 
     private var currentAdvocates: [AdvocateResult] {
@@ -462,7 +474,7 @@ struct ChatPaletteView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: closeAdvocateDrawerNotification)) { _ in
             guard let panelController, CommandPanelController.shared === panelController else { return }
-            selectedAdvocateId = nil
+            closeDrawerCompletely()
         }
         .onReceive(NotificationCenter.default.publisher(for: copyArbiterSummaryNotification)) { _ in
             guard let panelController, CommandPanelController.shared === panelController else { return }
@@ -476,11 +488,15 @@ struct ChatPaletteView: View {
 
     private var topArea: some View {
         Group {
-            switch submittedProblemType {
-            case .generalQuestion:
-                generalQuestionArea
-            case .multipleChoiceSingle, .multipleChoiceMulti:
-                multipleChoiceArea
+            if diffActive {
+                diffView
+            } else {
+                switch submittedProblemType {
+                case .generalQuestion:
+                    generalQuestionArea
+                case .multipleChoiceSingle, .multipleChoiceMulti:
+                    multipleChoiceArea
+                }
             }
         }
         .padding(16)
@@ -601,7 +617,7 @@ struct ChatPaletteView: View {
             } else {
                 ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                     Button {
-                        toggleAdvocateSelection(advocate)
+                        handleAdvocateTap(advocate)
                     } label: {
                         AdvocateCardView(
                             title: advocate.providerName,
@@ -650,6 +666,186 @@ struct ChatPaletteView: View {
         advocates.first { $0.id == selectedAdvocateId }
     }
 
+    // MARK: - Diff feature
+
+    /// True when both diff slots are filled — drives the side-by-side
+    /// takeover of the chat panel.
+    private var diffActive: Bool {
+        selectedAdvocateId != nil && diffSecondaryAdvocateId != nil
+    }
+
+    private var diffPrimaryAdvocate: AdvocateResult? {
+        guard let id = selectedAdvocateId else { return nil }
+        return advocates.first { $0.id == id }
+    }
+
+    private var diffSecondaryAdvocate: AdvocateResult? {
+        guard let id = diffSecondaryAdvocateId else { return nil }
+        return advocates.first { $0.id == id }
+    }
+
+    private func enterDiffSelectionMode() {
+        diffSelectionMode = true
+    }
+
+    private func cancelDiffSelection() {
+        diffSelectionMode = false
+    }
+
+    private func exitDiffMode() {
+        diffSecondaryAdvocateId = nil
+        diffSelectionMode = false
+        // Leave `selectedAdvocateId` set so the user lands back on the
+        // single-advocate drawer they were originally inspecting — back
+        // navigation should feel like a step backward, not a full reset.
+    }
+
+    /// Closes the drawer and clears every diff-related flag so the
+    /// next click on an advocate card starts a fresh interaction
+    /// instead of inheriting stale diff state. Used by esc, the X
+    /// button, and any external "close drawer" trigger.
+    private func closeDrawerCompletely() {
+        selectedAdvocateId = nil
+        diffSelectionMode = false
+        diffSecondaryAdvocateId = nil
+    }
+
+    /// ⌘ B is a "step back" gesture. When the diff view is active it
+    /// should exit the diff (one step back), not blow past the chat
+    /// all the way to home. Only when nothing's stacked on top of the
+    /// chat does ⌘ B fall through to `onBack` (the home navigation).
+    private func handleBackShortcut() {
+        if diffActive {
+            exitDiffMode()
+        } else {
+            onBack?()
+        }
+    }
+
+    /// True when ⌘ B has something to do — either there's a diff to
+    /// exit, or this chat was opened with a back-to-home affordance.
+    private var canHandleBackShortcut: Bool {
+        diffActive || onBack != nil
+    }
+
+    /// Side-by-side advocate comparison view. Replaces the chat
+    /// panel's content while `diffActive` is true. A single
+    /// `ScrollView` wraps both columns so they scroll together for
+    /// free.
+    private var diffView: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            diffHeader
+
+            ScrollView(.vertical, showsIndicators: true) {
+                HStack(alignment: .top, spacing: 16) {
+                    diffColumn(for: diffPrimaryAdvocate)
+                    Divider()
+                        .overlay(Color.white.opacity(0.10))
+                    diffColumn(for: diffSecondaryAdvocate)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var diffHeader: some View {
+        HStack(spacing: 10) {
+            Button {
+                exitDiffMode()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 26, height: 26)
+            }
+            .buttonStyle(.plain)
+            .background(
+                RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+            )
+            .help("Back to chat")
+
+            Text("Comparing")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 6) {
+                Text(diffPrimaryAdvocate?.providerName ?? "")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("vs.")
+                    .font(.system(size: 12, weight: .regular))
+                    .foregroundStyle(.tertiary)
+                Text(diffSecondaryAdvocate?.providerName ?? "")
+                    .font(.system(size: 13, weight: .semibold))
+            }
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private func diffColumn(for advocate: AdvocateResult?) -> some View {
+        if let advocate {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    // Color dot mirrors whatever color the advocate's
+                    // card uses in the main panel — stance color when
+                    // stance colors are on, provider color otherwise.
+                    if let color = diffAdvocateColor(advocate) {
+                        Circle()
+                            .fill(color)
+                            .frame(width: 10, height: 10)
+                    }
+
+                    Text(advocate.providerName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                if !advocate.summary.isEmpty {
+                    Text(advocate.summary)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(advocate.explanation)
+                    .font(.system(size: 15, weight: .regular))
+                    .foregroundStyle(.primary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else {
+            Color.clear
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private func diffAdvocateColor(_ advocate: AdvocateResult) -> Color? {
+        if shouldShowStanceColors, let stance = stanceColor(for: advocate.provider) {
+            return stance
+        }
+        return providerAccentColors[advocate.provider]
+    }
+
+    private func handleAdvocateTap(_ advocate: AdvocateResult) {
+        if diffSelectionMode {
+            // Reject taps on the already-selected primary; the
+            // "Diff" gesture only makes sense between two *different*
+            // advocates.
+            guard advocate.id != selectedAdvocateId else { return }
+            diffSecondaryAdvocateId = advocate.id
+            diffSelectionMode = false
+        } else {
+            toggleAdvocateSelection(advocate)
+        }
+    }
+
     private func toggleAdvocateSelection(_ advocate: AdvocateResult) {
         if selectedAdvocateId == advocate.id {
             selectedAdvocateId = nil
@@ -688,12 +884,37 @@ struct ChatPaletteView: View {
 
                 Spacer()
 
+                if !diffSelectionMode {
+                    Button {
+                        enterDiffSelectionMode()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "rectangle.split.2x1")
+                                .font(.system(size: 10, weight: .semibold))
+                            Text("Diff")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    )
+                    .help("Compare side-by-side with another model")
+                }
+
                 if settings.showKeyboardHintChips {
-                    ResolveKeycap("⌘ esc")
+                    ResolveKeycap("esc")
                 }
 
                 Button {
-                    selectedAdvocateId = nil
+                    closeDrawerCompletely()
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 12, weight: .semibold))
@@ -708,18 +929,43 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(7), style: .continuous)
                         .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
                 )
-                .help("Close drawer (⌘ esc)")
+                .help("Close drawer (esc)")
             }
 
-            Text("Detailed reasoning")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(.secondary)
+            if diffSelectionMode {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Pick another model to compare with \(advocate.providerName).")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-            ScrollView {
-                Text(advocate.explanation)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(.primary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        cancelDiffSelection()
+                    } label: {
+                        Text("Cancel")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .background(
+                        RoundedRectangle(cornerRadius: settings.cornerRadius(6), style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text("Detailed reasoning")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+
+                ScrollView {
+                    Text(advocate.explanation)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundStyle(.primary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
         .padding(12)
@@ -810,7 +1056,7 @@ struct ChatPaletteView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(advocates.enumerated()), id: \.element.id) { idx, advocate in
                             Button {
-                                toggleAdvocateSelection(advocate)
+                                handleAdvocateTap(advocate)
                             } label: {
                                 AdvocateThesisCardView(
                                     title: advocate.providerName,
@@ -858,13 +1104,14 @@ struct ChatPaletteView: View {
     @ViewBuilder
     private var hiddenKeyboardShortcuts: some View {
         Group {
-            // ⌘ B — go home (only when this chat was opened with a back
-            // affordance, e.g. via Past Chats). Disabled while a
-            // request is in flight so the user can't unmount the chat
-            // mid-response and orphan the in-flight POST.
-            Button("") { onBack?() }
+            // ⌘ B — step one screen back. In diff view, that means
+            // exiting the diff comparison; otherwise it goes home (if
+            // this chat was opened with a back affordance). Disabled
+            // mid-request so the user can't unmount the chat and
+            // orphan the in-flight POST.
+            Button("") { handleBackShortcut() }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(onBack == nil || isAnyRequestInFlight)
+                .disabled(!canHandleBackShortcut || isAnyRequestInFlight)
 
             // ⌘ [ — previous resolve round
             Button("") { goToPreviousRound() }
@@ -876,9 +1123,11 @@ struct ChatPaletteView: View {
                 .keyboardShortcut("]", modifiers: .command)
                 .disabled(!canGoForwardRound)
 
-            // ⌘ ⎋ — close advocate drawer
-            Button("") { selectedAdvocateId = nil }
-                .keyboardShortcut(.escape, modifiers: .command)
+            // esc — close advocate drawer (and any diff state on top
+            // of it). Plain esc, not ⌘ esc, since that's the macOS
+            // convention for "back out of this overlay."
+            Button("") { closeDrawerCompletely() }
+                .keyboardShortcut(.escape, modifiers: [])
                 .disabled(selectedAdvocateId == nil)
 
             // ⌘ 1–5 — open the Nth advocate's drawer

@@ -186,7 +186,7 @@ enum KeyboardShortcutCatalog {
             availability: .always
         ),
         KeyboardShortcut(
-            id: "closeDrawer", label: "Close advocate drawer", keys: "⌘ esc",
+            id: "closeDrawer", label: "Close advocate drawer", keys: "esc",
             icon: "sidebar.right",
             surfaces: [.homeList, .cmdKMenu],
             availability: .always
