@@ -168,6 +168,28 @@ struct ChatPaletteView: View {
         roundSnapshots.isEmpty || viewedRoundIndex == roundSnapshots.count - 1
     }
 
+    /// True while any backend request — initial send or a resolve
+    /// round — is in flight. Used to disable navigation gestures
+    /// (e.g. ⌘ B to go home) that would unmount the chat mid-request
+    /// and leave the request hanging.
+    private var isAnyRequestInFlight: Bool {
+        phase == .loading || isResolveRoundInFlight || isArbiterThinking
+    }
+
+    /// True when the displayed `lastSentText` is long enough that it
+    /// would wrap past ~4 lines at typical panel widths. Each line in
+    /// the source contributes 1 + `ceil(length / 70)` rendered lines;
+    /// once the sum exceeds 4 we flip to a scrollable container so
+    /// the question pill doesn't grow unbounded.
+    private var lastSentNeedsScroll: Bool {
+        let approxLines = lastSentText
+            .components(separatedBy: "\n")
+            .reduce(0) { running, segment in
+                running + max(1, Int(ceil(Double(segment.count) / 70.0)))
+            }
+        return approxLines > 4
+    }
+
     private var canGoBackRound: Bool {
         !isResolveRoundInFlight && !isArbiterThinking && viewedRoundIndex > 0
     }
@@ -290,27 +312,28 @@ struct ChatPaletteView: View {
                     Image(systemName: "sparkles")
                         .foregroundStyle(.secondary)
 
-                    // Short questions render as plain Text (natural
-                    // height). Long ones flip to a scrollable region
-                    // capped at ~80pt so the question stays visible
-                    // without ballooning the panel. `ViewThatFits`
-                    // tries the plain-Text first, falls back to the
-                    // ScrollView when it can't fit in the proposed
-                    // height.
-                    ViewThatFits(in: .vertical) {
-                        Text(lastSentText)
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundStyle(.primary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
+                    // Heuristic: render as plain Text (natural
+                    // height) when the question fits in ~4 lines;
+                    // switch to a fixed-height ScrollView once it
+                    // likely doesn't. Counting explicit newlines plus
+                    // an estimated ~70 chars/line wrap gives us a
+                    // reasonable signal without needing
+                    // GeometryReader (which fights intrinsic sizing).
+                    if lastSentNeedsScroll {
                         ScrollView(.vertical, showsIndicators: false) {
                             Text(lastSentText)
                                 .font(.system(size: 15, weight: .medium))
                                 .foregroundStyle(.primary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
+                        .frame(height: 88)
+                    } else {
+                        Text(lastSentText)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .frame(maxHeight: 80)
                 }
                 .padding(12)
                 .background(
@@ -836,10 +859,12 @@ struct ChatPaletteView: View {
     private var hiddenKeyboardShortcuts: some View {
         Group {
             // ⌘ B — go home (only when this chat was opened with a back
-            // affordance, e.g. via Past Chats).
+            // affordance, e.g. via Past Chats). Disabled while a
+            // request is in flight so the user can't unmount the chat
+            // mid-response and orphan the in-flight POST.
             Button("") { onBack?() }
                 .keyboardShortcut("b", modifiers: .command)
-                .disabled(onBack == nil)
+                .disabled(onBack == nil || isAnyRequestInFlight)
 
             // ⌘ [ — previous resolve round
             Button("") { goToPreviousRound() }
@@ -1113,8 +1138,12 @@ struct ChatPaletteView: View {
                     RoundedRectangle(cornerRadius: settings.cornerRadius(10), style: .continuous)
                         .fill(Color.white.opacity(0.08))
                 )
-                .help("Go home (⌘ B)")
-                .onHover { isBackButtonHovering = $0 }
+                // Disabled while a request is in flight to prevent
+                // navigating away mid-response and orphaning the POST.
+                .disabled(isAnyRequestInFlight)
+                .opacity(isAnyRequestInFlight ? 0.4 : 1.0)
+                .help(isAnyRequestInFlight ? "Wait for the response (⌘ B)" : "Go home (⌘ B)")
+                .onHover { isBackButtonHovering = $0 && !isAnyRequestInFlight }
                 // Hover-only chip: overlay alignment + offset keeps it
                 // out of the layout flow so the button stays 32×32 and
                 // aligned with the rest of the input bar. Fades in on
