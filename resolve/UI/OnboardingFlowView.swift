@@ -30,6 +30,7 @@ struct OnboardingFlowView: View {
         case demoState1       // canned chat: 3-2 disagreement
         case demoState2       // canned chat: 4-1 after first ⌘⇧R
         case demoState3       // canned chat: 5-0 consensus
+        case askResolveDemo   // looping video of Ask Resolve from another app
         case cheatSheet       // keyboard shortcuts grid + Continue
     }
 
@@ -125,6 +126,11 @@ struct OnboardingFlowView: View {
             let demoDrawerWidth: CGFloat = 260
             let totalWidth = demoBaseWidth + (selectedDemoAdvocate != nil ? demoDrawerWidth : 0)
             return CGSize(width: settings.scaled(totalWidth), height: settings.scaled(490))
+        case .askResolveDemo:
+            // Wider/taller to give the demo video room to breathe.
+            // Source video is 3024×1964 (aspect ~1.54); displayed at
+            // ~480pt wide → ~312pt tall, plus header/caption/button.
+            return CGSize(width: settings.scaled(520), height: settings.scaled(560))
         case .cheatSheet:
             return CGSize(width: settings.scaled(520), height: settings.scaled(430))
         }
@@ -282,6 +288,9 @@ struct OnboardingFlowView: View {
                 .transition(.opacity)
         case .demoState1, .demoState2, .demoState3:
             demoChatContent
+                .transition(.opacity)
+        case .askResolveDemo:
+            askResolveDemoContent
                 .transition(.opacity)
         case .cheatSheet:
             cheatSheetContent
@@ -682,7 +691,7 @@ struct OnboardingFlowView: View {
                     // prefer clicks have a visible target.
                     if step == .demoState3 {
                         OnboardingContinueButton(title: "Continue", keyHint: "⌘ ↵") {
-                            advance(to: .cheatSheet)
+                            advance(to: .askResolveDemo)
                         }
                     }
                 }
@@ -925,6 +934,66 @@ struct OnboardingFlowView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 resolvePulseSuppressed = false
             }
+        }
+    }
+
+    // MARK: - Ask Resolve demo (looping video)
+
+    private var askResolveDemoContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            headerRowWithSkip
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Ask Resolve from anywhere.")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Text("Highlight any text in any app and press ⌘ ⇧ A. Resolve grabs the selection and runs it through the debate.")
+                    .font(.system(size: 13.5, weight: .regular))
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            askResolveDemoVideo
+
+            HStack {
+                Spacer(minLength: 0)
+                OnboardingContinueButton(title: "Continue", keyHint: "⌘ ↵") {
+                    advance(to: .cheatSheet)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var askResolveDemoVideo: some View {
+        if let url = Bundle.main.url(forResource: "AskResolveDemo", withExtension: "mp4") {
+            LoopingVideoPlayer(url: url)
+                .frame(height: settings.scaled(312))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                )
+        } else {
+            // Fallback: if the video isn't in the bundle (e.g. the
+            // user hasn't added it to the Resolve target yet), show
+            // a placeholder so the step still renders something
+            // instead of collapsing the layout.
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.05))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                )
+                .frame(height: settings.scaled(312))
+                .overlay(
+                    Text("AskResolveDemo video not found in app bundle")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                )
         }
     }
 
