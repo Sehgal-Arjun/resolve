@@ -210,12 +210,14 @@ struct PastChatsView: View {
     @ViewBuilder
     private var list: some View {
         if isLoading {
-            HStack(spacing: 10) {
-                ProgressView().controlSize(.small)
+            VStack(spacing: 10) {
+                OnboardingBreathingDot(diameter: 22)
+
                 Text("Loading…")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.secondary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let lastError {
             Text(lastError)
                 .font(.system(size: 13, weight: .regular))
